@@ -1,0 +1,60 @@
+services:
+  ai:
+    build:
+      context: ./ai
+      dockerfile: Dockerfile
+    container_name: dwipa-ai
+    restart: unless-stopped
+    ports:
+      - "4000:8000"
+    env_file:
+      - ./ai/.env
+    environment:
+      # Override data dir agar sesuai volume mount di container
+      - DATA_DIR=/app/data
+      # Override base URL agar service name resolve antar container
+      - BASE_URL=http://ai:4000
+      - NEXT_PUBLIC_BASE_URL=http://ai:4000
+      - BETTER_AUTH_URL=http://ai:4000
+      - WEB_APP_URL=http://main:80
+    volumes:
+      - ai-data:/app/data
+    networks:
+      - dwipa
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  main:
+    build:
+      context: ./main
+      dockerfile: Dockerfile
+    container_name: dwipa-main
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    env_file:
+      - ./main/.env
+    environment:
+      # Override public URL agar client bisa reach dari host
+      - NEXT_PUBLIC_SITE_URL=http://localhost:3000
+      - NEXT_PUBLIC_AI_BASE_URL=http://localhost:4000
+      - NEXT_PUBLIC_WEB_API_BASE_URL=http://localhost:4000/api/web/v1
+      # Server-side fetch URL (internal Docker network)
+      - WEB_API_BASE_URL=http://ai:8000/api/web/v1
+    networks:
+      - dwipa
+    depends_on:
+      ai:
+        condition: service_healthy
+
+volumes:
+  ai-data:
+    driver: local
+
+networks:
+  dwipa:
+    driver: bridge

@@ -1,0 +1,2205 @@
+openapi: 3.0.3
+info:
+  title: Dwipa Main Web API
+  version: 1.2.1
+  description: |
+    API contract for `main/`, served by `ai/`.
+
+    This spec intentionally covers:
+    - endpoints already needed by the current `main/` implementation
+    - endpoints that `main/` will need once static or mock frontend-only pages are moved to backend data
+
+    Implementation priority for `ai/`:
+    - immediate backendization: session, auth, `/me`, usage overview, API keys, billing overview, subscription mutation
+    - next backendization wave: public pricing/models catalogs, forgot/reset password, usage history/request logs, manual payment, invoices
+    - still deferred: dedicated docs content APIs until `main/` has a concrete docs route and content model
+
+    In scope:
+    - public bootstrap, pricing, and model catalog surfaces
+    - session and authentication flows for `/sign-in`, `/sign-up`, `/otp`, and social auth
+    - account profile and auth-guard data for `/settings`
+    - usage, API key, and billing surfaces for `/settings/*`
+    - manual transfer flows for plan upgrades and add-funds requests
+
+    Out of scope:
+    - OpenAI-compatible inference endpoints exposed by `ai/`
+    - implementation-internal Better Auth endpoints
+    - static marketing copy itself
+    - docs CMS/content APIs before a docs information model exists
+
+servers:
+  - url: https://ai.dwipa.my.id
+    description: Production ai backend
+  - url: http://localhost:4000
+    description: Local ai dev server
+
+tags:
+  - name: Public
+    description: Public endpoints used by unauthenticated website pages
+  - name: Auth
+    description: Session bootstrap and authentication flows used by `main/`
+  - name: Profile
+    description: Account summary and profile state for the settings shell
+  - name: Usage
+    description: Usage summary and history for `/settings/usage`
+  - name: Keys
+    description: API key management for `/settings/keys`
+  - name: Billing
+    description: Billing overview, manual transfer, and invoice surfaces for `/settings/billing`
+  - name: Admin
+    description: DB-backed admin pages and mutations. Requires `dwipa_admin_session`, not the normal user session cookie.
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/web/v1/public/bootstrap:
+    get:
+      tags: [Public]
+      summary: Get public website bootstrap config
+      description: |
+        Returns public configuration needed by `main/` before authentication.
+        This is useful now for auth-provider availability and later for dynamic public-page behavior.
+      operationId: getPublicBootstrap
+      security: []
+      responses:
+        '200':
+          description: Public bootstrap resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicBootstrap'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/web/v1/public/plans:
+    get:
+      tags: [Public]
+      summary: List public pricing plans
+      description: |
+        Public pricing catalog for `/pricing`.
+        This endpoint is not strictly required by today's static page, but it is the intended source of truth once pricing is backend-driven.
+        The plan catalog is intended to be database-backed so pricing, labels, and entitlement copy can be changed without code edits.
+      operationId: listPublicPlans
+      security: []
+      responses:
+        '200':
+          description: Public plan catalog resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicPlanCatalogResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/web/v1/public/models:
+    get:
+      tags: [Public]
+      summary: List public model catalog entries
+      description: |
+        Public model catalog for `/models`.
+        The current page still reads local snapshot data, but this endpoint is the intended backend source once the catalog becomes dynamic.
+        The model catalog is intended to be database-backed so model visibility, pricing display, and metadata can be changed without code edits.
+      operationId: listPublicModels
+      security: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Free-text query across model name, provider, summary, category, and model id.
+          schema:
+            type: string
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Public model catalog resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicModelCatalogResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/web/v1/auth/session:
+    get:
+      tags: [Auth]
+      summary: Get current web session
+      description: |
+        Returns the current website session for `main/`.
+        This endpoint is safe to call before a user is authenticated and should drive settings-area auth guards.
+      operationId: getWebSession
+      security: []
+      responses:
+        '200':
+          description: Session resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/web/v1/auth/sign-in:
+    post:
+      tags: [Auth]
+      summary: Sign in with email and password
+      description: |
+        Used by the current `/sign-in` form.
+        On success the backend creates the website session cookie used by `main/`.
+      operationId: signInWithPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/web/v1/auth/sign-up:
+    post:
+      tags: [Auth]
+      summary: Start sign-up and OTP verification flow
+      description: |
+        Used by the current `/sign-up` form.
+        The backend creates a pending account, issues an OTP challenge, and returns the data needed for the `/otp` screen.
+      operationId: startSignUp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUpRequest'
+      responses:
+        '202':
+          description: Sign-up challenge created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpChallengeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/web/v1/auth/otp/verify:
+    post:
+      tags: [Auth]
+      summary: Verify sign-up OTP code
+      description: |
+        Used by `/otp` to verify the one-time code returned from sign-up.
+        On success the backend creates the website session cookie.
+      operationId: verifyOtpChallenge
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpVerifyRequest'
+      responses:
+        '200':
+          description: OTP verified and session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/web/v1/auth/otp/resend:
+    post:
+      tags: [Auth]
+      summary: Resend OTP code
+      description: |
+        Used by `/otp` when the previous code is lost or expired.
+        This endpoint is not fully wired by the current UI yet, but it is already required by the target auth flow.
+      operationId: resendOtpChallenge
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpResendRequest'
+      responses:
+        '202':
+          description: OTP challenge resent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpChallengeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/web/v1/auth/password/forgot:
+    post:
+      tags: [Auth]
+      summary: Start forgot-password flow
+      description: |
+        Not consumed by the current `/sign-in` form yet, but explicitly needed for the future password-reset flow mentioned in `main/docs/plan-main.md`.
+      operationId: startForgotPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '202':
+          description: Password reset challenge created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordResetChallengeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/web/v1/auth/password/reset:
+    post:
+      tags: [Auth]
+      summary: Complete password reset
+      description: Completes a password reset flow started by the forgot-password endpoint.
+      operationId: completePasswordReset
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '200':
+          description: Password reset completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/web/v1/auth/oauth/{provider}/authorize:
+    get:
+      tags: [Auth]
+      summary: Start OAuth sign-in or sign-up
+      description: |
+        Redirect entrypoint for social auth buttons rendered in `/sign-in` and `/sign-up`.
+        The current UI only exposes Google, so the provider enum is intentionally narrow.
+      operationId: authorizeOAuthProvider
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthProvider'
+        - name: intent
+          in: query
+          required: false
+          description: Which auth surface launched the flow.
+          schema:
+            type: string
+            enum: [sign_in, sign_up]
+        - name: returnTo
+          in: query
+          required: false
+          description: Absolute URL on `dwipa.my.id` to return to after auth finishes.
+          schema:
+            type: string
+            format: uri
+            example: https://dwipa.my.id/settings/usage
+      responses:
+        '302':
+          description: Redirect to provider authorization
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/web/v1/auth/oauth/{provider}/callback:
+    get:
+      tags: [Auth]
+      summary: Handle OAuth callback
+      description: Callback endpoint owned by `ai/` that completes Google auth and redirects back to `main/`.
+      operationId: handleOAuthCallback
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthProvider'
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect back to `main/` after callback handling
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Clear current website session
+      operationId: logoutWebSession
+      responses:
+        '204':
+          description: Session cleared
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/me:
+    get:
+      tags: [Profile]
+      summary: Get current account profile
+      description: |
+        Returns the account summary required by the `/settings` shell today and by the future profile surface later.
+      operationId: getCurrentProfile
+      responses:
+        '200':
+          description: Profile resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [Profile]
+      summary: Update current account profile
+      description: Future-facing profile mutation endpoint for `main/`.
+      operationId: updateCurrentProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/web/v1/me/usage:
+    get:
+      tags: [Usage]
+      summary: Get usage overview
+      description: Returns the usage summary rendered in `/settings/usage`.
+      operationId: getUsageOverview
+      responses:
+        '200':
+          description: Usage overview resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageOverviewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/web/v1/me/usage/history:
+    get:
+      tags: [Usage]
+      summary: Get usage history
+      description: |
+        Future-facing endpoint for the more detailed usage breakdown called out in `main/docs/plan-main.md`.
+      operationId: getUsageHistory
+      parameters:
+        - name: window
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: week
+      responses:
+        '200':
+          description: Usage history resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageHistoryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/me/usage/requests:
+    get:
+      tags: [Usage]
+      summary: List usage request logs
+      description: Request-level usage list for future detailed activity views.
+      operationId: listUsageRequests
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Usage request list resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageRequestListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/me/usage/requests/{requestId}:
+    get:
+      tags: [Usage]
+      summary: Get usage request detail
+      operationId: getUsageRequestDetail
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Usage request detail resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageRequestDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/web/v1/me/keys:
+    get:
+      tags: [Keys]
+      summary: List API keys
+      description: Returns the API key list rendered in `/settings/keys`.
+      operationId: listApiKeys
+      responses:
+        '200':
+          description: API keys resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Keys]
+      summary: Create API key
+      description: Creates a new API key and returns the one-time secret for the reveal modal in `/settings/keys`.
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateApiKeyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/web/v1/me/keys/{keyId}:
+    delete:
+      tags: [Keys]
+      summary: Delete API key
+      description: Deletes an API key chosen from the delete confirmation modal in `/settings/keys`.
+      operationId: deleteApiKey
+      parameters:
+        - $ref: '#/components/parameters/KeyId'
+      responses:
+        '204':
+          description: API key deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/web/v1/me/billing:
+    get:
+      tags: [Billing]
+      summary: Get billing overview
+      description: |
+        Returns the billing summary rendered in `/settings/billing`.
+        It should also expose enough state for future invoice and manual-transfer widgets.
+      operationId: getBillingOverview
+      responses:
+        '200':
+          description: Billing overview resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingOverviewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/web/v1/me/billing/subscription:
+    post:
+      tags: [Billing]
+      summary: Update subscription renewal state
+      description: Persists renew versus cancel-renewal actions from the "Manage Dwipa Pro" modal.
+      operationId: updateSubscriptionRenewal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubscriptionRequest'
+      responses:
+        '200':
+          description: Subscription state updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/web/v1/me/billing/payment-destination:
+    get:
+      tags: [Billing]
+      summary: Get active manual payment destination
+      description: |
+        Returns the currently active manual transfer destination.
+        For now this should point to the Dwipa QRIS destination backed by `087889640714`.
+      operationId: getPaymentDestination
+      responses:
+        '200':
+          description: Payment destination resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualPaymentDestination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/web/v1/me/billing/manual-payments:
+    post:
+      tags: [Billing]
+      summary: Create manual payment intent
+      description: |
+        Creates a pending manual transfer intent for plan upgrades or add-funds flows.
+        The response includes the active QRIS destination and transfer reference data that the user must follow manually.
+      operationId: createManualPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualPaymentIntentRequest'
+      responses:
+        '201':
+          description: Manual payment intent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualPaymentIntentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/me/billing/invoices:
+    get:
+      tags: [Billing]
+      summary: List invoices
+      description: Invoice history surface for future billing screens.
+      operationId: listInvoices
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Invoice list resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/me/billing/invoices/{invoiceId}:
+    get:
+      tags: [Billing]
+      summary: Get invoice detail
+      operationId: getInvoiceDetail
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+      responses:
+        '200':
+          description: Invoice detail resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/web/v1/me/billing/manual-payments/{paymentId}:
+    get:
+      tags: [Billing]
+      summary: Get manual payment detail
+      operationId: getManualPaymentDetail
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Manual payment detail resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualPaymentDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/web/v1/me/billing/manual-payments/{paymentId}/submit:
+    post:
+      tags: [Billing]
+      summary: Submit manual transfer details
+      description: |
+        Used after the user transfers funds manually through the active QRIS destination.
+        This moves the payment into a submitted or under-review state for manual verification.
+      operationId: submitManualPayment
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualPaymentSubmissionRequest'
+      responses:
+        '200':
+          description: Manual payment submission accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualPaymentDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/web/v1/admin/auth/session:
+    get:
+      tags: [Admin]
+      summary: Get admin session
+      security:
+        - adminCookieAuth: []
+      responses:
+        '200':
+          description: Admin session state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/admin/auth/sign-in:
+    post:
+      tags: [Admin]
+      summary: Sign in as admin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Admin sign-in succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSignInResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/admin/overview:
+    get:
+      tags: [Admin]
+      summary: Get DB-backed admin overview
+      security:
+        - adminCookieAuth: []
+      responses:
+        '200':
+          description: Admin overview metrics, queues, and charts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOverviewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/admin/payments:
+    get:
+      tags: [Admin]
+      summary: List manual payments
+      security:
+        - adminCookieAuth: []
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: purpose, in: query, required: false, schema: { type: string } }
+        - { name: cursor, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Payments page data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPaymentsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/admin/payments/{paymentId}:
+    get:
+      tags: [Admin]
+      summary: Get manual payment detail
+      security:
+        - adminCookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Payment detail or null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment:
+                    nullable: true
+                    $ref: '#/components/schemas/AdminPaymentDetail'
+                  paymentId:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/web/v1/admin/payments/{paymentId}/approve:
+    post:
+      tags: [Admin]
+      summary: Approve manual payment
+      description: Requires an idempotency key in the JSON body. Reusing the same key with a different body returns 409.
+      security:
+        - adminCookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPaymentMutationRequest'
+      responses:
+        '200':
+          description: Updated payment detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPaymentDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/web/v1/admin/payments/{paymentId}/reject:
+    post:
+      tags: [Admin]
+      summary: Reject manual payment
+      description: Requires an idempotency key and rejection reason in the JSON body.
+      security:
+        - adminCookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPaymentMutationRequest'
+      responses:
+        '200':
+          description: Updated payment detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPaymentDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/web/v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      security:
+        - adminCookieAuth: []
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: plan, in: query, required: false, schema: { type: string } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: cursor, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Users page data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUsersResponse'
+
+  /api/web/v1/admin/usage/requests:
+    get:
+      tags: [Admin]
+      summary: List usage requests
+      security:
+        - adminCookieAuth: []
+      parameters:
+        - { name: userId, in: query, required: false, schema: { type: string } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: provider, in: query, required: false, schema: { type: string } }
+        - { name: model, in: query, required: false, schema: { type: string } }
+        - { name: from, in: query, required: false, schema: { type: string } }
+        - { name: to, in: query, required: false, schema: { type: string } }
+        - { name: cursor, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Usage request page data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUsageRequestsResponse'
+
+  /api/web/v1/admin/models:
+    get:
+      tags: [Admin]
+      summary: List admin model catalog rows
+      security:
+        - adminCookieAuth: []
+      responses:
+        '200':
+          description: Admin model catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelsResponse'
+
+  /api/web/v1/admin/plans:
+    get:
+      tags: [Admin]
+      summary: List admin plan rows
+      security:
+        - adminCookieAuth: []
+      responses:
+        '200':
+          description: Admin plans
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPlansResponse'
+
+  /api/web/v1/admin/audit-events:
+    get:
+      tags: [Admin]
+      summary: List admin audit events
+      security:
+        - adminCookieAuth: []
+      responses:
+        '200':
+          description: Audit event page data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuditEventsResponse'
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dwipa_session
+    adminCookieAuth:
+      type: apiKey
+      in: cookie
+      name: dwipa_admin_session
+
+  parameters:
+    OAuthProvider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [google]
+    KeyId:
+      name: keyId
+      in: path
+      required: true
+      schema:
+        type: string
+        example: key_01HTZTV6N4VQX2S1C8P6HZT4X9
+    InvoiceId:
+      name: invoiceId
+      in: path
+      required: true
+      schema:
+        type: string
+        example: inv_01HTZWJRY0F1AFBWK2J4J8WAK9
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema:
+        type: string
+        example: pay_01HTZWJRY0F1AFBWK2J4J8WAK9
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        example: req_01HTZY5TYR4M2A6QK5VQ9VQX5T
+
+  responses:
+    BadRequest:
+      description: Request payload is malformed or missing required fields
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: bad_request
+              message: Request body is invalid.
+
+    Unauthorized:
+      description: Authentication failed or session is missing
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: unauthorized
+              message: Authentication required.
+
+    NotFound:
+      description: Referenced resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: not_found
+              message: Resource not found.
+
+    Conflict:
+      description: Request conflicts with current account or billing state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            duplicate_email:
+              value:
+                error:
+                  code: conflict
+                  message: An account with this email already exists.
+            duplicate_key_name:
+              value:
+                error:
+                  code: conflict
+                  message: Use a different name for this key.
+
+    Gone:
+      description: Challenge or reset token has expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: expired
+              message: This challenge has expired.
+
+    UnprocessableEntity:
+      description: Request is syntactically valid but fails semantic validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          example:
+            error:
+              code: validation_failed
+              message: Validation failed.
+              details:
+                - field: otpCode
+                  message: Enter a valid 6-digit code.
+
+    TooManyRequests:
+      description: Request throttled
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: rate_limited
+              message: Try again later.
+
+    ServiceUnavailable:
+      description: Dependency temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: service_unavailable
+              message: Service is temporarily unavailable.
+
+  schemas:
+    AdminSessionResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        admin:
+          type: object
+          nullable: true
+          properties:
+            email:
+              type: string
+              format: email
+
+    AdminSignInResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        redirectTo:
+          type: string
+        admin:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+
+    AdminChartPoint:
+      type: object
+      required: [label, value]
+      properties:
+        label:
+          type: string
+        value:
+          type: number
+
+    AdminMetric:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        value: { type: string }
+        description: { type: string }
+
+    AdminOverviewResponse:
+      type: object
+      properties:
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/AdminMetric' }
+        workQueue:
+          type: object
+        charts:
+          type: object
+
+    AdminPaymentsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AdminPaymentDetail' }
+        nextCursor:
+          type: string
+          nullable: true
+        summary:
+          type: object
+
+    AdminPaymentDetail:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        userEmail: { type: string }
+        purpose: { type: string }
+        status: { type: string }
+        planSlug: { type: string, nullable: true }
+        amountMinor: { type: integer }
+        amountDisplay: { type: string }
+        currency: { type: string }
+        referenceCode: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    AdminUsersResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AdminUserDetail' }
+        nextCursor:
+          type: string
+          nullable: true
+        summary:
+          type: object
+
+    AdminUserDetail:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        planSlug: { type: string }
+        status: { type: string }
+        creditBalanceDisplay: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    AdminUsageRequestsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+        nextCursor:
+          type: string
+          nullable: true
+        summary:
+          type: object
+        charts:
+          type: object
+
+    AdminModelsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+        nextCursor:
+          type: string
+          nullable: true
+        summary:
+          type: object
+
+    AdminPlansResponse:
+      type: object
+      properties:
+        plans:
+          type: array
+          items:
+            type: object
+
+    AdminAuditEventsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+        nextCursor:
+          type: string
+          nullable: true
+        summary:
+          type: object
+
+    AdminPaymentMutationRequest:
+      type: object
+      required: [idempotencyKey]
+      properties:
+        idempotencyKey:
+          type: string
+        reason:
+          type: string
+        creditAmountMinor:
+          type: integer
+        creditCurrency:
+          type: string
+
+    PublicBootstrap:
+      type: object
+      required: [site, authProviders, links, features]
+      properties:
+        site:
+          type: object
+          required: [name, appBaseUrl, apiBaseUrl]
+          properties:
+            name:
+              type: string
+              example: Dwipa
+            appBaseUrl:
+              type: string
+              format: uri
+              example: https://dwipa.my.id
+            apiBaseUrl:
+              type: string
+              format: uri
+              example: https://ai.dwipa.my.id
+        authProviders:
+          type: array
+          items:
+            type: string
+            enum: [password, otp, google]
+        links:
+          type: object
+          properties:
+            docs:
+              type: string
+              example: /docs
+            pricing:
+              type: string
+              example: /pricing
+            models:
+              type: string
+              example: /models
+            status:
+              type: string
+              nullable: true
+              example: https://status.dwipa.my.id
+        features:
+          type: object
+          required: [pricingCatalog, modelsCatalog, billing, usageHistory]
+          properties:
+            pricingCatalog:
+              type: boolean
+            modelsCatalog:
+              type: boolean
+            billing:
+              type: boolean
+            usageHistory:
+              type: boolean
+
+    PublicPlanCatalogResponse:
+      type: object
+      required: [plans]
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicPlan'
+
+    PublicPlan:
+      type: object
+      required:
+        [slug, name, priceLabel, periodLabel, description, ctaLabel, billingType, entitlements]
+      properties:
+        slug:
+          type: string
+          enum: [free, pro, payg]
+        name:
+          type: string
+        priceLabel:
+          type: string
+          example: Rp 50.000
+        periodLabel:
+          type: string
+          nullable: true
+          example: / MONTH
+        description:
+          type: string
+        ctaLabel:
+          type: string
+        highlighted:
+          type: boolean
+        billingType:
+          type: string
+          enum: [free, recurring, metered]
+        entitlements:
+          type: array
+          items:
+            $ref: '#/components/schemas/LabeledValue'
+
+    PublicModelCatalogResponse:
+      type: object
+      required: [items, total]
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicModel'
+
+    PublicModel:
+      type: object
+      required:
+        [slug, name, provider, providerCode, summary, contextWindow, inputPrice, outputPrice, latency, modelId, category]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+        providerCode:
+          type: string
+        summary:
+          type: string
+        contextWindow:
+          type: string
+        inputPrice:
+          type: string
+        outputPrice:
+          type: string
+        latency:
+          type: string
+        modelId:
+          type: string
+        category:
+          type: string
+
+    SessionResponse:
+      type: object
+      required: [authenticated, expiresAt, user]
+      properties:
+        authenticated:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        user:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/SessionUserSummary'
+
+    SessionUserSummary:
+      type: object
+      required: [id, name, email, planSlug]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: Yoga Dwipayana
+        email:
+          type: string
+          format: email
+        planSlug:
+          type: string
+          enum: [free, pro, payg]
+
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: yogadwipayana2006@gmail.com
+        password:
+          type: string
+          minLength: 8
+          example: supersecret123
+        returnTo:
+          type: string
+          nullable: true
+          example: /settings/usage
+      additionalProperties: false
+
+    SignUpRequest:
+      type: object
+      required: [fullName, email, password]
+      properties:
+        fullName:
+          type: string
+          example: Yoga Dwipayana
+        email:
+          type: string
+          format: email
+          example: yogadwipayana2006@gmail.com
+        password:
+          type: string
+          minLength: 8
+          example: supersecret123
+      additionalProperties: false
+
+    OtpChallengeResponse:
+      type: object
+      required: [challengeId, channel, email, maskedDestination, expiresAt, redirectTo]
+      properties:
+        challengeId:
+          type: string
+          example: authc_01HTZC6R08YQ8V4AJR9R9PWPS3
+        channel:
+          type: string
+          enum: [email_otp]
+        email:
+          type: string
+          format: email
+          example: yogadwipayana2006@gmail.com
+        maskedDestination:
+          type: string
+          example: yo***@gmail.com
+        expiresAt:
+          type: string
+          format: date-time
+        retryAfterSeconds:
+          type: integer
+          nullable: true
+          example: 60
+        redirectTo:
+          type: string
+          example: /otp
+
+    OtpVerifyRequest:
+      type: object
+      required: [challengeId, otpCode]
+      properties:
+        challengeId:
+          type: string
+          example: authc_01HTZC6R08YQ8V4AJR9R9PWPS3
+        otpCode:
+          type: string
+          pattern: '^\d{6}$'
+          example: '384291'
+        returnTo:
+          type: string
+          nullable: true
+          example: /settings/usage
+      additionalProperties: false
+
+    OtpResendRequest:
+      type: object
+      required: [challengeId]
+      properties:
+        challengeId:
+          type: string
+          example: authc_01HTZC6R08YQ8V4AJR9R9PWPS3
+      additionalProperties: false
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+      additionalProperties: false
+
+    PasswordResetChallengeResponse:
+      type: object
+      required: [challengeId, expiresAt]
+      properties:
+        challengeId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        message:
+          type: string
+          example: Password reset instructions have been sent.
+
+    PasswordResetRequest:
+      type: object
+      required: [challengeToken, newPassword]
+      properties:
+        challengeToken:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
+      additionalProperties: false
+
+    AuthSuccessResponse:
+      type: object
+      required: [session, redirectTo]
+      properties:
+        session:
+          $ref: '#/components/schemas/SessionResponse'
+        redirectTo:
+          type: string
+          example: /settings/usage
+
+    Profile:
+      type: object
+      required: [id, fullName, email, username, planSlug, avatarUrl, company, timezone, bio]
+      properties:
+        id:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        planSlug:
+          type: string
+          enum: [free, pro, payg]
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          nullable: true
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+        username:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    UsageOverviewResponse:
+      type: object
+      required: [planSlug, meters, canUpgrade]
+      properties:
+        planSlug:
+          type: string
+          enum: [free, pro, payg]
+        canUpgrade:
+          type: boolean
+        meters:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageMeter'
+
+    UsageMeter:
+      type: object
+      required: [id, label, description, valueDisplay, totalDisplay, progressPercent]
+      properties:
+        id:
+          type: string
+          example: daily_credit
+        label:
+          type: string
+          example: Daily allocation
+        description:
+          type: string
+          example: Credits added through approved manual payments.
+        valueDisplay:
+          type: string
+          example: $0
+        totalDisplay:
+          type: string
+          example: $0 balance
+        progressPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 100
+        resetsAt:
+          type: string
+          format: date-time
+          nullable: true
+        countdownText:
+          type: string
+          nullable: true
+          example: Resets in 12h 14m
+
+    UsageHistoryResponse:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageHistoryEntry'
+
+    UsageHistoryEntry:
+      type: object
+      required: [window, costDisplay, requestCount, periodStart, periodEnd]
+      properties:
+        window:
+          type: string
+          example: 2026-04-24
+        costDisplay:
+          type: string
+          example: $1.27
+        requestCount:
+          type: integer
+          example: 38
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+
+    UsageRequestListResponse:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageRequestSummary'
+        nextCursor:
+          type: string
+          nullable: true
+
+    UsageRequestSummary:
+      type: object
+      required: [id, createdAt, model, provider, status, costDisplay]
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        model:
+          type: string
+        provider:
+          type: string
+        status:
+          type: string
+          enum: [completed, failed, canceled]
+        costDisplay:
+          type: string
+          example: $0.06
+
+    UsageRequestDetail:
+      allOf:
+        - $ref: '#/components/schemas/UsageRequestSummary'
+        - type: object
+          properties:
+            inputTokens:
+              type: integer
+            outputTokens:
+              type: integer
+            latencyMs:
+              type: integer
+            errorMessage:
+              type: string
+              nullable: true
+
+    ApiKeyListResponse:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKeySummary'
+
+    ApiKeySummary:
+      type: object
+      required: [id, label, maskedKey, createdAt]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        maskedKey:
+          type: string
+          example: dw_8f0c4e799d8b3d17...
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateApiKeyRequest:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 48
+          example: Production Search
+      additionalProperties: false
+
+    CreateApiKeyResponse:
+      type: object
+      required: [key, secret]
+      properties:
+        key:
+          $ref: '#/components/schemas/ApiKeySummary'
+        secret:
+          type: string
+          example: dw_8f0c4e799d8b3d17c94df8f0d5d5582d1ce4
+
+    BillingOverviewResponse:
+      type: object
+      required: [subscription, creditBalance, availableActions]
+      properties:
+        subscription:
+          $ref: '#/components/schemas/SubscriptionSummary'
+        creditBalance:
+          $ref: '#/components/schemas/CreditBalanceSummary'
+        paymentDestination:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ManualPaymentDestination'
+        recentManualPayments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManualPaymentSummary'
+        recentInvoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceSummary'
+        availableActions:
+          type: object
+          required: [canManageRenewal, canAddFunds, canCreateManualPayment]
+          properties:
+            canManageRenewal:
+              type: boolean
+            canAddFunds:
+              type: boolean
+            canCreateManualPayment:
+              type: boolean
+
+    SubscriptionSummary:
+      type: object
+      required: [planSlug, planName, status, autoRenew]
+      properties:
+        planSlug:
+          type: string
+          enum: [free, pro, payg]
+        planName:
+          type: string
+          example: Dwipa Pro
+        status:
+          type: string
+          enum: [active, renew_off]
+        autoRenew:
+          type: boolean
+        renewsAt:
+          type: string
+          format: date-time
+          nullable: true
+        price:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/RecurringPrice'
+
+    RecurringPrice:
+      type: object
+      required: [currency, amount, interval]
+      properties:
+        currency:
+          type: string
+          enum: [IDR]
+        amount:
+          type: integer
+          example: 50000
+        interval:
+          type: string
+          enum: [month]
+
+    CreditBalanceSummary:
+      type: object
+      required: [currency, amount, displayValue]
+      properties:
+        currency:
+          type: string
+          enum: [USD]
+        amount:
+          type: number
+          format: float
+          example: 42.5
+        displayValue:
+          type: string
+          example: $42.50
+
+    UpdateSubscriptionRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [renew, cancel]
+      additionalProperties: false
+
+    ManualPaymentDestination:
+      type: object
+      required: [provider, accountNumber, displayName, instructions, isActive]
+      properties:
+        provider:
+          type: string
+          enum: [qris]
+        displayName:
+          type: string
+          example: QRIS
+        accountNumber:
+          type: string
+          example: '087889640714'
+        accountHolderName:
+          type: string
+          nullable: true
+        instructions:
+          type: string
+          example: Scan the QRIS image, pay the exact amount, then submit the transfer details for review.
+        isActive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ManualPaymentIntentRequest:
+      type: object
+      required: [purpose]
+      properties:
+        purpose:
+          type: string
+          enum: [upgrade_plan, add_funds]
+        planSlug:
+          type: string
+          nullable: true
+          enum: [free, pro, payg]
+        amount:
+          type: integer
+          nullable: true
+          description: Integer amount in IDR used for add-funds flows.
+        notes:
+          type: string
+          nullable: true
+        returnTo:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    ManualPaymentIntentResponse:
+      type: object
+      required: [payment]
+      properties:
+        payment:
+          $ref: '#/components/schemas/ManualPaymentDetail'
+
+    ManualPaymentSummary:
+      type: object
+      required: [id, purpose, status, amountMinor, currency, createdAt]
+      properties:
+        id:
+          type: string
+        purpose:
+          type: string
+          enum: [upgrade_plan, add_funds]
+        status:
+          type: string
+          enum: [pending_transfer, submitted, under_review, approved, rejected, expired, canceled]
+        planSlug:
+          type: string
+          nullable: true
+          enum: [free, pro, payg]
+        amountMinor:
+          type: integer
+          example: 50000
+        currency:
+          type: string
+          enum: [IDR]
+        referenceCode:
+          type: string
+          example: DWP-TF-20260424-0014
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ManualPaymentDetail:
+      allOf:
+        - $ref: '#/components/schemas/ManualPaymentSummary'
+        - type: object
+          required: [destination]
+          properties:
+            destination:
+              $ref: '#/components/schemas/ManualPaymentDestination'
+            senderName:
+              type: string
+              nullable: true
+            senderReference:
+              type: string
+              nullable: true
+            submittedAt:
+              type: string
+              format: date-time
+              nullable: true
+            notes:
+              type: string
+              nullable: true
+
+    InvoiceListResponse:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceSummary'
+        nextCursor:
+          type: string
+          nullable: true
+
+    InvoiceSummary:
+      type: object
+      required: [id, number, status, amountDisplay, issuedAt]
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+          example: DWP-2026-00014
+        status:
+          type: string
+          enum: [draft, open, paid, void, failed]
+        amountDisplay:
+          type: string
+          example: Rp 50.000
+        issuedAt:
+          type: string
+          format: date-time
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+        hostedUrl:
+          type: string
+          format: uri
+          nullable: true
+
+    InvoiceDetail:
+      allOf:
+        - $ref: '#/components/schemas/InvoiceSummary'
+        - type: object
+          properties:
+            lineItems:
+              type: array
+              items:
+                $ref: '#/components/schemas/InvoiceLineItem'
+
+    InvoiceLineItem:
+      type: object
+      required: [label, amountDisplay]
+      properties:
+        label:
+          type: string
+        amountDisplay:
+          type: string
+
+    ManualPaymentSubmissionRequest:
+      type: object
+      properties:
+        senderName:
+          type: string
+          nullable: true
+        senderReference:
+          type: string
+          nullable: true
+          description: Free-form transfer note, reference number, or last digits the user wants support to verify.
+        transferredAt:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    LabeledValue:
+      type: object
+      required: [label, value]
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+    ValidationErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                $ref: '#/components/schemas/ValidationIssue'
+
+    ValidationIssue:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
