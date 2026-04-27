@@ -1,0 +1,188 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #f7f3eb;
+  --foreground: #000000;
+  --foreground-strong: #262626;
+  --surface: #fbf8f2;
+  --surface-strong: #e5ddd0;
+  --surface-inverse: #090909;
+  --text-muted: #6f675c;
+  --text-muted-strong: #525252;
+  --text-subtle: #a3a3a3;
+  --button-text: #404040;
+  --border: #c8bfae;
+  --border-strong: #bbb2a4;
+  --ring: rgb(200 191 174 / 0.85);
+  --radius-base-container: 0px;
+  --radius-base-pill: 0px;
+  --font-stack-display: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+  --font-stack-sans: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+  --font-stack-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-foreground-strong: var(--foreground-strong);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-muted: var(--text-muted);
+  --color-muted-strong: var(--text-muted-strong);
+  --color-subtle: var(--text-subtle);
+  --color-button-text: var(--button-text);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --font-display: var(--font-stack-display);
+  --font-sans: var(--font-stack-sans);
+  --font-mono: var(--font-stack-mono);
+  --radius-container: var(--radius-base-container);
+  --radius-pill: var(--radius-base-pill);
+}
+
+@layer base {
+  html {
+    min-height: 100%;
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  body {
+    min-height: 100%;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-stack-sans);
+    font-size: 1rem;
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
+  }
+
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+    box-shadow: none;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--surface-strong);
+    color: var(--foreground);
+  }
+
+  a {
+    color: inherit;
+    text-underline-offset: 0.18em;
+  }
+
+  h1,
+  h2,
+  h3 {
+    color: var(--foreground);
+    font-family: var(--font-stack-display);
+    font-weight: 500;
+    letter-spacing: normal;
+  }
+
+  h1 {
+    font-size: clamp(1.875rem, 5vw, 3rem);
+    line-height: 1;
+  }
+
+  h2 {
+    font-size: clamp(1.75rem, 4vw, 2.25rem);
+    line-height: 1.11;
+  }
+
+  h3 {
+    font-size: clamp(1.5rem, 3vw, 1.875rem);
+    line-height: 1.2;
+  }
+
+  h4,
+  h5,
+  h6 {
+    color: var(--foreground-strong);
+    font-weight: 500;
+    line-height: 1.33;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-stack-mono);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    color: inherit;
+    font: inherit;
+  }
+
+  button,
+  [type="button"],
+  [type="submit"],
+  [type="reset"] {
+    min-height: 44px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-weight: 500;
+    transition: none;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="color"]
+    ),
+  select {
+    min-height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--background);
+    color: var(--foreground-strong);
+    padding: 10px 16px;
+  }
+
+  textarea {
+    min-height: 120px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-base-container);
+    background: var(--background);
+    color: var(--foreground-strong);
+    padding: 12px 16px;
+  }
+
+  ::placeholder {
+    color: var(--text-subtle);
+    opacity: 1;
+  }
+
+  img,
+  svg {
+    display: block;
+    max-width: 100%;
+  }
+
+  .admin-surface,
+  .admin-surface *,
+  .admin-surface input,
+  .admin-surface select,
+  .admin-surface textarea,
+  .admin-surface button,
+  .admin-surface a {
+    border-radius: 0 !important;
+  }
+}
