@@ -32,31 +32,61 @@ function extractItemText(item) {
   return "";
 }
 
-// Resolve session_id from first assistant message + machineId to avoid cross-user collision
-function resolveConversationSessionId(input, machineId) {
-  const machineSessionId = machineId ? `sess_${hashContent(machineId)}` : generateSessionId();
-  if (!Array.isArray(input) || input.length === 0) return machineSessionId;
+// Resolve a stable session_id for a Codex conversation.
+// The Responses API input[] does NOT contain role==="assistant" items — they are
+// emitted as "function_call" / "function_call_output" — so we anchor on the first
+// user message instead.  The result is deterministic: the same conversation gets
+// the same session_id across every turn, even in Docker where machineId may be
+// unstable or null.  We keep the old in-memory map as a harmless fallback but the
+// function no longer depends on it.
+function resolveConversationSessionId(input, machineId, connectionId = null) {
+  const stableBase = machineId || connectionId || "";
+  const basePrefix = stableBase ? hashContent(stableBase).slice(0, 16) : "";
 
-  // Find first assistant message that has actual text content
-  let text = "";
+  if (!Array.isArray(input) || input.length === 0) {
+    return basePrefix ? `sess_${basePrefix}` : generateSessionId();
+  }
+
+  // Anchor on the first user-facing message (user or system).
+  // Responses API:  { type: "message", role: "user",  content: [...] }
+  // Chat Completions: { role: "user", content: "..." }
+  let anchorText = "";
   for (const item of input) {
-    if (item.role === "assistant") {
-      text = extractItemText(item);
-      if (text) break;
+    const role = item.role || (item.type === "message" ? item.role : null);
+    if (role === "user" || role === "system") {
+      anchorText = extractItemText(item);
+      if (anchorText) break;
     }
   }
-  if (!text) return machineSessionId;
 
-  const hash = hashContent((machineId || "") + text);
-  const entry = assistantSessionMap.get(hash);
+  // Fallback: any item that carries text
+  if (!anchorText) {
+    for (const item of input) {
+      anchorText = extractItemText(item);
+      if (anchorText) break;
+    }
+  }
+
+  if (!anchorText) {
+    return basePrefix ? `sess_${basePrefix}` : generateSessionId();
+  }
+
+  // Deterministic session_id: same first user message + same user/connection
+  // always produces the same id, so every turn in one conversation re-uses it.
+  const hash = hashContent(stableBase + anchorText).slice(0, 16);
+
+  // For back-compat, check the old in-memory map.  In Docker/multi-worker
+  // setups the map will usually miss, but the deterministic hash above
+  // already gives us the right answer.
+  const lookupHash = stableBase + anchorText;
+  const entry = assistantSessionMap.get(lookupHash);
   if (entry) {
     entry.lastUsed = Date.now();
     return entry.sessionId;
   }
 
-
-  const sessionId = generateSessionId();
-  assistantSessionMap.set(hash, { sessionId, lastUsed: Date.now() });
+  const sessionId = basePrefix ? `sess_${basePrefix}-${hash}` : `sess_${hash}`;
+  assistantSessionMap.set(lookupHash, { sessionId, lastUsed: Date.now() });
   return sessionId;
 }
 
@@ -153,8 +183,12 @@ export class CodexExecutor extends BaseExecutor {
   transformRequest(model, body, stream, credentials) {
     this._isCompact = !!body._compact;
     delete body._compact;
-    // Resolve conversation-stable session_id from input history + machineId
-    this._currentSessionId = resolveConversationSessionId(body.input, cachedMachineId);
+    // Resolve conversation-stable session_id from input history.
+    // We pass connectionId as a fallback stable base because node-machine-id
+    // is often unreliable inside Docker containers (returns a different or null
+    // id on every restart), which would break Codex's server-side reasoning
+    // state and cause 400 Bad Request on multi-turn tool-use.
+    this._currentSessionId = resolveConversationSessionId(body.input, cachedMachineId, credentials?.connectionId);
     // Convert string input to array format (Codex API requires input as array)
     const normalized = normalizeResponsesInput(body.input);
     if (normalized) body.input = normalized;

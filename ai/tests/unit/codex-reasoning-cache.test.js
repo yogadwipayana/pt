@@ -76,6 +76,47 @@ describe("CodexExecutor transformRequest", () => {
     expect(result.include).toEqual(["reasoning.encrypted_content"]);
   });
 
+  it("produces deterministic session_id for the same conversation", () => {
+    const body1 = {
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hello world" }] }],
+      reasoning_effort: "medium",
+    };
+    const result1 = executor.transformRequest("gpt-5.4", body1, true, { connectionId: "conn-123" });
+    const sid1 = executor._currentSessionId;
+
+    // Simulate follow-up turn (different input array, same first user message)
+    const body2 = {
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "hello world" }] },
+        { type: "function_call", call_id: "call_A", name: "read", arguments: "{}" },
+        { type: "function_call_output", call_id: "call_A", output: "..." },
+      ],
+      reasoning_effort: "medium",
+    };
+    const result2 = executor.transformRequest("gpt-5.4", body2, true, { connectionId: "conn-123" });
+    const sid2 = executor._currentSessionId;
+
+    expect(sid1).toBe(sid2);
+  });
+
+  it("produces different session_id for different conversations", () => {
+    const body1 = {
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hello world" }] }],
+      reasoning_effort: "medium",
+    };
+    executor.transformRequest("gpt-5.4", body1, true, { connectionId: "conn-123" });
+    const sid1 = executor._currentSessionId;
+
+    const body2 = {
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "different prompt" }] }],
+      reasoning_effort: "medium",
+    };
+    executor.transformRequest("gpt-5.4", body2, true, { connectionId: "conn-123" });
+    const sid2 = executor._currentSessionId;
+
+    expect(sid1).not.toBe(sid2);
+  });
+
   it("does NOT set include when reasoning effort is none", () => {
     const body = {
       input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
