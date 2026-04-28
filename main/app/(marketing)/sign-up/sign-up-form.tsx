@@ -12,6 +12,7 @@ type SignUpValues = {
   fullName: string;
   email: string;
   password: string;
+  agreedToTerms: boolean;
 };
 
 type SignUpErrors = Partial<Record<keyof SignUpValues, string>>;
@@ -43,14 +44,19 @@ function validateSignUp(values: SignUpValues) {
     errors.password = "Password must be at least 8 characters.";
   }
 
+  if (!values.agreedToTerms) {
+    errors.agreedToTerms = "You must agree to the Terms and Privacy Policy.";
+  }
+
   return errors;
 }
 
-function getFieldError(name: keyof SignUpValues, value: string) {
+function getFieldError(name: keyof SignUpValues, value: string | boolean) {
   return validateSignUp({
-    fullName: name === "fullName" ? value : "Dwipa User",
-    email: name === "email" ? value : "user@example.com",
-    password: name === "password" ? value : "password123",
+    fullName: name === "fullName" ? (value as string) : "Dwipa User",
+    email: name === "email" ? (value as string) : "user@example.com",
+    password: name === "password" ? (value as string) : "password123",
+    agreedToTerms: name === "agreedToTerms" ? (value as boolean) : true,
   })[name];
 }
 
@@ -76,6 +82,7 @@ export function SignUpForm() {
     fullName: "",
     email: "",
     password: "",
+    agreedToTerms: false,
   });
   const [errors, setErrors] = useState<SignUpErrors>({});
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -128,7 +135,7 @@ export function SignUpForm() {
     });
   };
 
-  const handleFieldChange = (name: keyof SignUpValues, value: string) => {
+  const handleFieldChange = (name: keyof SignUpValues, value: string | boolean) => {
     setValues((current) => ({
       ...current,
       [name]: value,
@@ -266,10 +273,39 @@ export function SignUpForm() {
           ) : null}
         </div>
 
+        <div className="space-y-2">
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              name="agreedToTerms"
+              checked={values.agreedToTerms}
+              onChange={(event) => handleFieldChange("agreedToTerms", event.target.checked)}
+              aria-invalid={errors.agreedToTerms ? true : undefined}
+              aria-describedby={errors.agreedToTerms ? "terms-error" : undefined}
+              className="mt-[2px] h-4 w-4 rounded-none border-[#9f988c] accent-black"
+            />
+            <span className="text-[10px] leading-[1.5] text-[#6e6a63] sm:text-[11px]">
+              I agree to the{" "}
+              <Link href="/terms" className="text-black underline underline-offset-2">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link href="/privacy" className="text-black underline underline-offset-2">
+                Privacy Policy
+              </Link>
+            </span>
+          </label>
+          {errors.agreedToTerms ? (
+            <p id="terms-error" className="text-[10px] leading-[1.5] text-[#7d2f2f] sm:text-[11px]">
+              {errors.agreedToTerms}
+            </p>
+          ) : null}
+        </div>
+
         <button
           type="submit"
           disabled={isPending}
-          className="flex min-h-[46px] w-full items-center justify-center border border-black bg-black px-4 text-[8px] uppercase tracking-[0.16em] text-white sm:text-[9px]"
+          className="flex min-h-[46px] w-full items-center justify-center border border-black bg-black px-4 text-[8px] uppercase tracking-[0.16em] text-white disabled:bg-[#9f988c] disabled:border-[#9f988c] sm:text-[9px]"
         >
           {isPending ? "Preparing OTP" : "Create account"}
         </button>

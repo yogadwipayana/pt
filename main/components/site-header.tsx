@@ -16,8 +16,7 @@ const navigationLinks = [
   { label: "Home", href: "/" },
   { label: "Models", href: "/models" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Privacy", href: "/privacy" },
-  { label: "Terms", href: "/terms" },
+  { label: "Beta", href: "/beta-tester" },
 ] as const;
 
 function HeaderActions({ authenticated, onLogout }: { authenticated: boolean | null; onLogout: () => void }) {
@@ -122,7 +121,7 @@ export function SiteHeader({ className = "" }: SiteHeaderProps) {
           </div>
         </div>
 
-        <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[#6e6a63] sm:gap-x-6 md:flex-1 md:justify-center">
+        <nav className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-[10px] tracking-[0.12em] text-[#6e6a63] sm:gap-x-6 sm:text-[12px] sm:tracking-[0.16em] md:flex-1 md:justify-center">
           {navigationLinks.map((link) => (
             <Link key={link.label} href={link.href} className="py-2 hover:text-black">
               {link.label}

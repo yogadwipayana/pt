@@ -6,5 +6,5 @@ type PageContainerProps = {
 };
 
 export function PageContainer({ children, className = "" }: PageContainerProps) {
-  return <div className={["mx-auto w-full max-w-[1010px] px-4 sm:px-7", className].filter(Boolean).join(" ")}>{children}</div>;
+  return <div className={["mx-auto box-border w-[calc(100%-32px)] max-w-[1010px] sm:w-full sm:px-7", className].filter(Boolean).join(" ")}>{children}</div>;
 }

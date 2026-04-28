@@ -13,7 +13,9 @@
     "seed:models": "node --experimental-default-type=module scripts/seed-model-catalog.js",
     "seed:models:dry": "node --experimental-default-type=module scripts/seed-model-catalog.js --dry-run",
     "seed:models:prisma": "node --experimental-default-type=module scripts/seed-model-catalog-prisma.js",
-    "seed:models:prisma:dry": "node --experimental-default-type=module scripts/seed-model-catalog-prisma.js --dry-run"
+    "seed:models:prisma:dry": "node --experimental-default-type=module scripts/seed-model-catalog-prisma.js --dry-run",
+    "seed:plans:prisma": "node --experimental-default-type=module scripts/seed-plan-catalog-prisma.js",
+    "seed:plans:prisma:dry": "node --experimental-default-type=module scripts/seed-plan-catalog-prisma.js --dry-run"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

@@ -25,6 +25,12 @@ const terminalLines = [
   "}'",
 ] as const;
 
+const betaChecks = [
+  "Test the unified API with real workloads",
+  "Report latency, billing, and model-routing issues",
+  "Shape the developer experience before public launch",
+] as const;
+
 function TerminalWindow() {
   return (
     <div className="w-full max-w-[520px] shadow-[4px_4px_0_0_#2b2b2b] lg:max-w-[640px]">
@@ -93,6 +99,45 @@ export default function HomePage() {
           </section>
 
           <div className="h-[120px] border-t border-[#c8bfae]" />
+
+          <section className="border-t border-[#c8bfae] py-10 sm:py-12 lg:py-14">
+            <div className="grid gap-8 md:grid-cols-[minmax(0,0.72fr)_minmax(0,1fr)] md:items-start md:gap-10">
+              <div>
+                <p className="text-[8px] uppercase tracking-[0.18em] text-[#736b5f] sm:text-[9px]">
+                  Beta tester intake
+                </p>
+                <h2 className="mt-5 max-w-[360px] text-[32px] font-semibold leading-[0.9] tracking-[-0.075em] sm:text-[44px] lg:text-[48px]">
+                  Help test Dwipa before wider release.
+                </h2>
+              </div>
+
+              <div className="border border-[#bfb6a8] bg-[#fbfaf7] px-5 py-5 sm:px-6 sm:py-6">
+                <p className="max-w-[520px] text-[11px] leading-[1.75] text-[#686156] sm:text-[12px]">
+                  We are opening beta access for developers who want to try Dwipa in active builds and give direct feedback on API reliability, model coverage, and usage controls.
+                </p>
+
+                <ul className="mt-6 grid gap-3 sm:grid-cols-3">
+                  {betaChecks.map((item, index) => (
+                    <li key={item} className="border-t border-[#ded7cb] pt-3">
+                      <span className="text-[8px] uppercase tracking-[0.16em] text-[#9a9488]">
+                        0{index + 1}
+                      </span>
+                      <p className="mt-2 text-[11px] leading-[1.45] text-black sm:text-[12px]">{item}</p>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-7 flex flex-wrap gap-[10px] text-[8px] uppercase tracking-[0.16em]">
+                  <Link href="/beta-tester" className="border border-black bg-black px-[14px] py-[10px] text-white">
+                    Open Beta Details
+                  </Link>
+                  <Link href="/sign-up" className="border border-[#bfb6a8] px-[14px] py-[10px] text-black">
+                    Apply Now
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </section>
         </PageContainer>
       </div>
     </main>
