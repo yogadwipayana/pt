@@ -172,16 +172,18 @@ export class CodexExecutor extends BaseExecutor {
     }
     delete body.reasoning_effort;
 
-    // Include reasoning encrypted content (required by Codex backend for reasoning models).
-    // Skip on follow-up turns that already carry tool-call history — the chat.completions
-    // wire format has no slot to replay previous reasoning, and asking for encrypted_content
-    // without being able to supply it causes a 400 Bad Request.
-    const hasToolHistory = Array.isArray(body.input) && body.input.some(
-      item => item.type === "function_call" || item.type === "function_call_output"
-    );
-    if (body.reasoning && body.reasoning.effort && body.reasoning.effort !== 'none' && !hasToolHistory) {
-      body.include = ["reasoning.encrypted_content"];
-    }
+    // NOTE: We intentionally do NOT request reasoning.encrypted_content.
+    // The Responses API returns reasoning as plain-text summary by default,
+    // which our response translator forwards as reasoning_content.  When
+    // encrypted_content is requested, Codex requires those opaque blobs to be
+    // replayed verbatim on every follow-up turn.  The Chat Completions wire
+    // format (used by most clients) has no slot to carry them, so we would
+    // need a fragile server-side cache keyed by session_id.  Skipping the
+    // encrypted variant keeps the architecture simple and avoids 400 errors
+    // on multi-turn tool-use conversations.
+    // if (body.reasoning && body.reasoning.effort && body.reasoning.effort !== 'none') {
+    //   body.include = ["reasoning.encrypted_content"];
+    // }
 
     // Remove unsupported parameters for Codex API
     delete body.temperature;

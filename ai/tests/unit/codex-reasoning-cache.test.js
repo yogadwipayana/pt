@@ -44,32 +44,30 @@ describe("CodexExecutor transformRequest", () => {
     executor = new CodexExecutor();
   });
 
-  it("sets include=reasoning.encrypted_content on first-turn requests", () => {
+  it("never sets include=reasoning.encrypted_content (avoids 400 on tool follow-ups)", () => {
     const body = {
       input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
-      reasoning_effort: "medium",
-    };
-    const result = executor.transformRequest("gpt-5.4", body, true, {});
-    expect(result.include).toEqual(["reasoning.encrypted_content"]);
-  });
-
-  it("skips include on follow-up turns that already have function_call history", () => {
-    const body = {
-      input: [
-        { type: "message", role: "user", content: [{ type: "input_text", text: "read file" }] },
-        { type: "function_call", call_id: "call_A", name: "read", arguments: "{}" },
-        { type: "function_call_output", call_id: "call_A", output: "file contents" },
-      ],
       reasoning_effort: "medium",
     };
     const result = executor.transformRequest("gpt-5.4", body, true, {});
     expect(result.include).toBeUndefined();
   });
 
-  it("skips include on follow-up turns that already have function_call_output items", () => {
+  it("does not set include even on first turn with tools present", () => {
+    const body = {
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "read file" }] }],
+      reasoning_effort: "medium",
+      tools: [{ type: "function", function: { name: "read" } }],
+    };
+    const result = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(result.include).toBeUndefined();
+  });
+
+  it("does not set include on follow-up turns with function_call history", () => {
     const body = {
       input: [
         { type: "message", role: "user", content: [{ type: "input_text", text: "read file" }] },
+        { type: "function_call", call_id: "call_A", name: "read", arguments: "{}" },
         { type: "function_call_output", call_id: "call_A", output: "file contents" },
       ],
       reasoning_effort: "medium",
