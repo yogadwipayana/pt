@@ -5,6 +5,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: ['localhost', 'ai.dwipa.my.id', 'dwipa.my.id'],
   output: "standalone",
   outputFileTracingRoot: __dirname,
   serverExternalPackages: ["better-sqlite3"],
