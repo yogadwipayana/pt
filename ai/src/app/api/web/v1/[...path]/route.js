@@ -21,6 +21,7 @@ import {
   getAdminPlans,
   getAdminSession,
   getAdminUsageRequests,
+  resetAdminUsage,
   getAdminUser,
   getAdminUsers,
   getBilling,
@@ -147,6 +148,10 @@ async function handleRequest(request, { params }) {
 
   if (request.method === "GET" && pathname === "/admin/usage/requests") {
     return getAdminUsageRequests(request);
+  }
+
+  if (request.method === "POST" && pathname === "/admin/usage/reset") {
+    return resetAdminUsage(request);
   }
 
   if (request.method === "GET" && pathname === "/admin/models") {

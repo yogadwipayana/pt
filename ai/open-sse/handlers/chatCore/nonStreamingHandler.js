@@ -155,7 +155,6 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
 
   const usage = extractUsageFromResponse(responseBody);
   appendLog({ tokens: usage, status: "200 OK" });
-  saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint });
 
   const translatedResponse = needsTranslation(targetFormat, sourceFormat)
     ? translateNonStreamingResponse(responseBody, targetFormat, sourceFormat)
@@ -197,15 +196,17 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
 
   const totalLatency = Date.now() - requestStartTime;
   const rawCost = await calculateRequestCost(provider, model, usage || { prompt_tokens: 0, completion_tokens: 0 });
+  const requestDetailId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   let chargedCost = rawCost;
   if (onUsageCharge && rawCost > 0) {
     try {
-      const result = await onUsageCharge(rawCost);
+      const result = await onUsageCharge(rawCost, requestDetailId);
       if (Number.isFinite(Number(result))) chargedCost = Number(result);
     } catch (err) {
       console.error("[UsageCharge] failed:", err.message);
     }
   }
+  saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, cost: chargedCost });
   saveRequestDetail(buildRequestDetail({
     provider, model, connectionId,
     ...(apiKeyContext || {}),
@@ -221,7 +222,7 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
       finish_reason: translatedResponse?.choices?.[0]?.finish_reason || "unknown"
     },
     status: "success"
-  }, { endpoint: clientRawRequest?.endpoint || null })).catch(err => {
+  }, { id: requestDetailId, endpoint: clientRawRequest?.endpoint || null })).catch(err => {
     console.error("[RequestDetail] Failed to save:", err.message);
   });
 

@@ -16,7 +16,7 @@ export default async function OtpPage() {
   await redirectAuthenticatedUser();
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#f7f3eb] pb-8 pt-[6px] text-[#111111]">
+    <main className="flex min-h-screen flex-col bg-[#f7f3eb] pb-6 pt-[6px] text-[#111111]">
       <SiteHeader />
 
       <PageContainer className="flex flex-1 flex-col">

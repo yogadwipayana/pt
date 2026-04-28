@@ -5,12 +5,12 @@ import { FORMATS } from "../../translator/formats.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats } from "./requestDetail.js";
 import { saveRequestDetail, appendRequestLog, calculateRequestCost } from "@/lib/usageDb.js";
 
-async function resolveChargedCost({ provider, model, tokens, onUsageCharge }) {
+async function resolveChargedCost({ provider, model, tokens, onUsageCharge, usageRequestId }) {
   const rawCost = await calculateRequestCost(provider, model, tokens || {});
   let chargedCost = rawCost;
   if (onUsageCharge && rawCost > 0) {
     try {
-      const result = await onUsageCharge(rawCost);
+      const result = await onUsageCharge(rawCost, usageRequestId);
       if (Number.isFinite(Number(result))) chargedCost = Number(result);
     } catch (err) {
       console.error("[UsageCharge] failed:", err.message);
@@ -135,14 +135,15 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
 
       const usage = jsonResponse.usage || {};
       appendLog({ tokens: usage, status: "200 OK" });
-      saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint });
 
       const { msgItem, textContent } = pickAssistantMessageForChatCompletion(jsonResponse.output);
       const totalLatency = Date.now() - requestStartTime;
 
       const normalizedUsage = { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0 };
-      const chargedCost = await resolveChargedCost({ provider, model, tokens: normalizedUsage, onUsageCharge });
+      const requestDetailId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      const chargedCost = await resolveChargedCost({ provider, model, tokens: normalizedUsage, onUsageCharge, usageRequestId: requestDetailId });
 
+      saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, cost: chargedCost });
       saveRequestDetail(buildRequestDetail({
         ...ctx,
         planSlug: apiKeyContext?.planSlug || ctx.planSlug || null,
@@ -151,7 +152,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
         cost: chargedCost,
         response: { content: textContent, thinking: null, finish_reason: jsonResponse.status || "unknown" },
         status: "success"
-      }, { endpoint: clientRawRequest?.endpoint || null })).catch(() => {});
+      }, { id: requestDetailId, endpoint: clientRawRequest?.endpoint || null })).catch(() => {});
 
       // Client is Responses API → return as-is
       if (sourceFormat === FORMATS.OPENAI_RESPONSES) {
@@ -215,10 +216,12 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
 
     const usage = parsed.usage || {};
     appendLog({ tokens: usage, status: "200 OK" });
-    saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint });
 
     const totalLatency = Date.now() - requestStartTime;
-    const chargedCost = await resolveChargedCost({ provider, model, tokens: usage, onUsageCharge });
+    const requestDetailId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const chargedCost = await resolveChargedCost({ provider, model, tokens: usage, onUsageCharge, usageRequestId: requestDetailId });
+
+    saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, cost: chargedCost });
     saveRequestDetail(buildRequestDetail({
       ...ctx,
       planSlug: apiKeyContext?.planSlug || ctx.planSlug || null,
@@ -231,7 +234,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
         finish_reason: parsed.choices?.[0]?.finish_reason || "unknown"
       },
       status: "success"
-    }, { endpoint: clientRawRequest?.endpoint || null })).catch(() => {});
+    }, { id: requestDetailId, endpoint: clientRawRequest?.endpoint || null })).catch(() => {});
 
     // Strip reasoning_content only when content is non-empty.
     // When content is empty (e.g. thinking models that used all tokens for reasoning),

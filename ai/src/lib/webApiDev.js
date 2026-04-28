@@ -34,7 +34,8 @@ import {
 } from "@/lib/adminPostgres";
 import { createApiKey, deleteApiKey, getApiKeyById, getApiKeys, getSettings, updateApiKey } from "@/lib/localDb";
 import { buildPublicModelCatalog } from "./modelCatalogSeed.js";
-import { getRequestDetails } from "./usageDb.js";
+import { getRequestDetails, resetUsageDb } from "./usageDb.js";
+import { resetRequestDetailsDb } from "./requestDetailsDb.js";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { PROVIDER_MODELS } from "@/shared/constants/models";
 import { MODEL_PRICING, getPricingForModel, calculateCostFromTokens } from "@/shared/constants/pricing";
@@ -1710,6 +1711,23 @@ export async function getAdminUsageRequests(request) {
     hasTokens: url.searchParams.get("hasTokens") === "true",
     limit: Number(url.searchParams.get("limit") || 10),
   }));
+}
+
+export async function resetAdminUsage(request) {
+  if (!(await requireAdminSession(request))) {
+    return errorResponse(401, "admin_unauthorized", "Admin session is required.");
+  }
+
+  const [usageOk, detailsOk] = await Promise.all([
+    resetUsageDb(),
+    resetRequestDetailsDb(),
+  ]);
+
+  return jsonResponse({
+    success: usageOk && detailsOk,
+    usageReset: usageOk,
+    detailsReset: detailsOk,
+  });
 }
 
 export async function getAdminModels(request) {

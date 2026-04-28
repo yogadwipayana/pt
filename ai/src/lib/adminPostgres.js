@@ -1915,7 +1915,7 @@ function resolvePlanDiscountPercent(planSlug, planDiscountPercent) {
  *   remainingCreditUsd: number, consumedCreditUsd: number
  * }>}
  */
-export async function dbConsumeUserCredit(userId, costUsd, usageMode = "both") {
+export async function dbConsumeUserCredit(userId, costUsd, usageMode = "both", usageRequestId = null) {
   await ensureAdminSchema();
   const originalCost = safeNumber(costUsd);
   if (!userId || !(originalCost > 0)) return null;
@@ -1964,6 +1964,44 @@ export async function dbConsumeUserCredit(userId, costUsd, usageMode = "both") {
   `, [quota.id, chargedCost, updatedAt, newWindowStart, newWindowEnd]);
 
   if (!updated) return null;
+
+  const countedTowardQuotaUsd = Math.min(chargedCost, safeNumber(quota.remainingCreditUsd));
+  const discountUsd = originalCost * (discountPercent / 100);
+
+  if (usageRequestId) {
+    try {
+      await query(`
+        INSERT INTO "UsageCharge" (
+          "id", "userId", "usageRequestId", "quotaWindowId", "planSlug",
+          "baseCostUsd", "discountUsd", "chargedCostUsd", "countedTowardQuotaUsd",
+          "createdAt", "updatedAt"
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+        ON CONFLICT ("usageRequestId") DO UPDATE SET
+          "quotaWindowId" = COALESCE(EXCLUDED."quotaWindowId", "UsageCharge"."quotaWindowId"),
+          "planSlug" = EXCLUDED."planSlug",
+          "baseCostUsd" = EXCLUDED."baseCostUsd",
+          "discountUsd" = EXCLUDED."discountUsd",
+          "chargedCostUsd" = EXCLUDED."chargedCostUsd",
+          "countedTowardQuotaUsd" = EXCLUDED."countedTowardQuotaUsd",
+          "updatedAt" = $10
+      `, [
+        crypto.randomUUID(),
+        userId,
+        usageRequestId,
+        quota.id || null,
+        quota.planSlug,
+        originalCost,
+        discountUsd,
+        chargedCost,
+        countedTowardQuotaUsd,
+        updatedAt,
+      ]);
+    } catch (err) {
+      console.warn("[dbConsumeUserCredit] Failed to create UsageCharge:", err.message);
+    }
+  }
+
   return {
     planSlug: quota.planSlug,
     discountPercent,

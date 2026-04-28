@@ -86,12 +86,13 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, a
         let chargedCost = rawCost;
         if (onUsageCharge && rawCost > 0) {
           try {
-            const result = await onUsageCharge(rawCost);
+            const result = await onUsageCharge(rawCost, streamDetailId);
             if (Number.isFinite(Number(result))) chargedCost = Number(result);
           } catch (err) {
             console.error("[UsageCharge] failed:", err.message);
           }
         }
+        saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, label: "STREAM USAGE", cost: chargedCost });
         return saveRequestDetail(buildRequestDetail({
           provider, model, connectionId,
           ...(apiKeyContext || {}),
@@ -108,8 +109,6 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, a
       .catch(err => {
         console.error("[RequestDetail] Failed to update streaming content:", err.message);
       });
-
-    saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, label: "STREAM USAGE" });
   };
 
   return { onStreamComplete, streamDetailId };

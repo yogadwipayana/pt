@@ -9,6 +9,7 @@ import { AdminChart } from "../components/admin-chart";
 import { AdminMobileList, AdminTable } from "../components/admin-table";
 import { AdminEmptyState } from "../components/empty-state";
 import { StatusPill } from "../components/status-pill";
+import { ResetUsageButton } from "./reset-usage-button";
 
 export const metadata: Metadata = { title: "Admin Usage - Dwipa", description: "Review Dwipa API usage across users." };
 
@@ -119,8 +120,13 @@ export default async function AdminUsagePage({ searchParams }: { searchParams: P
 
   return (
     <section>
-      <h2 className="text-[24px] leading-[0.98] tracking-[-0.04em] sm:text-[30px]">{adminCopy.usageTitle}</h2>
-      <p className="mt-2 max-w-[520px] text-[10px] leading-[1.55] text-[#8a847a] sm:text-[11px]">{adminCopy.usageDescription}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[24px] leading-[0.98] tracking-[-0.04em] sm:text-[30px]">{adminCopy.usageTitle}</h2>
+          <p className="mt-2 max-w-[520px] text-[10px] leading-[1.55] text-[#8a847a] sm:text-[11px]">{adminCopy.usageDescription}</p>
+        </div>
+        <ResetUsageButton />
+      </div>
 
       <form className="mt-6 grid gap-3 border border-[#d8d0c3] bg-[#fbfaf7] p-4 sm:grid-cols-2 lg:grid-cols-4">
         <input name="userId" defaultValue={stringParam(resolvedSearchParams.userId) || ""} placeholder="User id" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />

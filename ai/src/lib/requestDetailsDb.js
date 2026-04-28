@@ -252,6 +252,30 @@ export async function getRequestDetailById(id) {
   return db.data.records.find(r => r.id === id) || null;
 }
 
+/**
+ * Reset request details database — clear all records.
+ * Returns true on success, false on failure.
+ */
+export async function resetRequestDetailsDb() {
+  if (!DB_FILE) return false;
+  try {
+    // Flush any pending writes first
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    if (writeBuffer.length > 0) {
+      await flushToDatabase();
+      writeBuffer = [];
+    }
+
+    const db = await getDb();
+    db.data.records = [];
+    await db.write();
+    return true;
+  } catch (error) {
+    console.error("[requestDetailsDb] Failed to reset request details database:", error);
+    return false;
+  }
+}
+
 // Graceful shutdown — use named handler so we can remove it on re-registration
 const _shutdownHandler = async () => {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }

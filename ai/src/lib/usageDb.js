@@ -297,8 +297,10 @@ export async function saveRequestUsage(entry) {
       db.data.totalRequestsLifetime = db.data.history.length;
     }
 
-    const entryCost = await calculateRequestCost(entry.provider, entry.model, entry.tokens);
-    entry.cost = entryCost;
+    if (!Number.isFinite(Number(entry.cost))) {
+      const entryCost = await calculateRequestCost(entry.provider, entry.model, entry.tokens);
+      entry.cost = entryCost;
+    }
     db.data.history.push(entry);
     db.data.totalRequestsLifetime += 1;
 
@@ -835,6 +837,26 @@ export async function getChartData(period = "7d") {
   });
 
   return buckets;
+}
+
+/**
+ * Reset usage database — clear history, dailySummary, and reset lifetime counter.
+ * Returns true on success, false on failure.
+ */
+export async function resetUsageDb() {
+  if (isCloud) return false;
+  try {
+    const db = await getUsageDb();
+    db.data.history = [];
+    db.data.dailySummary = {};
+    db.data.totalRequestsLifetime = 0;
+    await db.write();
+    statsEmitter.emit("update");
+    return true;
+  } catch (error) {
+    console.error("[usageDb] Failed to reset usage database:", error);
+    return false;
+  }
 }
 
 // Re-export request details functions from new SQLite-based module

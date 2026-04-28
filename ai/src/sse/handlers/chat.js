@@ -248,9 +248,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       apiKey,
       apiKeyContext,
       onUsageCharge: apiKeyContext?.userId
-        ? async (cost) => {
+        ? async (cost, usageRequestId) => {
             try {
-              const result = await dbConsumeUserCredit(apiKeyContext.userId, cost, apiKeyContext.usageMode || "both");
+              const result = await dbConsumeUserCredit(apiKeyContext.userId, cost, apiKeyContext.usageMode || "both", usageRequestId);
               if (!result) return cost;
               // Record the plan window the credit actually came from so the
               // saved request detail reflects free/pro/payg instead of null.

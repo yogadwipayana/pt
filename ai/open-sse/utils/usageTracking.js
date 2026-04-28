@@ -2,7 +2,7 @@
  * Token Usage Tracking - Extract, normalize, estimate and log token usage
  */
 
-import { saveRequestUsage, appendRequestLog } from "@/lib/usageDb.js";
+import { appendRequestLog } from "@/lib/usageDb.js";
 import { FORMATS } from "../translator/formats.js";
 
 // ANSI color codes
@@ -324,7 +324,9 @@ export function logUsage(provider, usage, model = null, connectionId = null, api
 
   console.log(msg);
 
-  // Save to usage DB
+  // Save to usage DB — streaming usage is recorded once by saveUsageStats
+  // (called from onStreamComplete in streamingHandler.js) with the chargedCost.
+  // We only write the text log here to avoid double-counting raw vs discounted cost.
   const tokens = {
     prompt_tokens: inTokens,
     completion_tokens: outTokens,
@@ -332,6 +334,5 @@ export function logUsage(provider, usage, model = null, connectionId = null, api
     cache_creation_input_tokens: cacheCreation || 0,
     reasoning_tokens: reasoning || 0
   };
-  saveRequestUsage({ model, provider, connectionId, tokens, apiKey: apiKey || undefined }).catch(() => { });
   appendRequestLog({ model, provider, connectionId, tokens, status: "200 OK" }).catch(() => { });
 }

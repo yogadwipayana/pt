@@ -23,7 +23,7 @@ export default async function SignInPage({
   const returnTo = params?.returnTo || "/settings/usage";
 
   return (
-    <main className="min-h-screen bg-[#f7f3eb] px-[26px] pb-8 pt-[6px] text-[#111111] sm:px-8 lg:px-[26px]">
+    <main className="min-h-screen bg-[#f7f3eb] pb-6 pt-[6px] text-[#111111]">
       <SiteHeader />
 
       <PageContainer className="pb-4 sm:pb-5">
