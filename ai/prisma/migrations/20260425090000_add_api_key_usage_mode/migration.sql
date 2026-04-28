@@ -1,0 +1,3 @@
+-- Baseline migration: changes already exist in database.
+-- This migration was applied on 2026-04-25 via another environment.
+-- Kept here for migration history consistency.

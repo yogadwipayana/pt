@@ -1,0 +1,3 @@
+-- Baseline migration: schema already exists in database.
+-- This migration was applied on 2026-04-24 via another environment.
+-- Kept here for migration history consistency.
