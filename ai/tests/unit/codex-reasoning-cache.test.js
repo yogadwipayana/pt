@@ -44,26 +44,26 @@ describe("CodexExecutor transformRequest", () => {
     executor = new CodexExecutor();
   });
 
-  it("never sets include=reasoning.encrypted_content (avoids 400 on tool follow-ups)", () => {
+  it("sets include=reasoning.encrypted_content on first-turn requests", () => {
     const body = {
       input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
       reasoning_effort: "medium",
     };
     const result = executor.transformRequest("gpt-5.4", body, true, {});
-    expect(result.include).toBeUndefined();
+    expect(result.include).toEqual(["reasoning.encrypted_content"]);
   });
 
-  it("does not set include even on first turn with tools present", () => {
+  it("sets include even on first turn with tools present", () => {
     const body = {
       input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "read file" }] }],
       reasoning_effort: "medium",
       tools: [{ type: "function", function: { name: "read" } }],
     };
     const result = executor.transformRequest("gpt-5.4", body, true, {});
-    expect(result.include).toBeUndefined();
+    expect(result.include).toEqual(["reasoning.encrypted_content"]);
   });
 
-  it("does not set include on follow-up turns with function_call history", () => {
+  it("sets include on follow-up turns with function_call history", () => {
     const body = {
       input: [
         { type: "message", role: "user", content: [{ type: "input_text", text: "read file" }] },
@@ -73,7 +73,7 @@ describe("CodexExecutor transformRequest", () => {
       reasoning_effort: "medium",
     };
     const result = executor.transformRequest("gpt-5.4", body, true, {});
-    expect(result.include).toBeUndefined();
+    expect(result.include).toEqual(["reasoning.encrypted_content"]);
   });
 
   it("does NOT set include when reasoning effort is none", () => {
