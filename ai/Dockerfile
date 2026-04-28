@@ -15,6 +15,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN apk --no-cache add nodejs
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Prisma config requires DIRECT_URL at generate time even though it doesn't connect
+ENV DIRECT_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 RUN bunx prisma generate
 RUN bun run build
 
