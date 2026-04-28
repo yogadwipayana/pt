@@ -172,8 +172,14 @@ export class CodexExecutor extends BaseExecutor {
     }
     delete body.reasoning_effort;
 
-    // Include reasoning encrypted content (required by Codex backend for reasoning models)
-    if (body.reasoning && body.reasoning.effort && body.reasoning.effort !== 'none') {
+    // Include reasoning encrypted content (required by Codex backend for reasoning models).
+    // Skip on follow-up turns that already carry tool-call history — the chat.completions
+    // wire format has no slot to replay previous reasoning, and asking for encrypted_content
+    // without being able to supply it causes a 400 Bad Request.
+    const hasToolHistory = Array.isArray(body.input) && body.input.some(
+      item => item.type === "function_call" || item.type === "function_call_output"
+    );
+    if (body.reasoning && body.reasoning.effort && body.reasoning.effort !== 'none' && !hasToolHistory) {
       body.include = ["reasoning.encrypted_content"];
     }
 

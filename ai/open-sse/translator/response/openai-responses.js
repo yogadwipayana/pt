@@ -435,22 +435,26 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
 
   // Capture completed reasoning items for cross-turn replay (Codex requirement).
   // The `done` event carries the full item including `encrypted_content`.
-  if (eventType === "response.output_item.done" && data.item?.type === "reasoning") {
-    if (data.item.encrypted_content) {
-      state.pendingReasoningItem = {
-        id: data.item.id,
-        type: "reasoning",
-        summary: Array.isArray(data.item.summary) ? data.item.summary : [],
-        encrypted_content: data.item.encrypted_content
-      };
-      // Bind to any function_calls that were emitted *before* their reasoning
-      // closed (rare, but the streaming order is not guaranteed).
-      if (Array.isArray(state.pendingReasoningCallIds) && state.pendingReasoningCallIds.length > 0) {
-        storeReasoningForCallIds(state.pendingReasoningCallIds, state.pendingReasoningItem);
-        state.pendingReasoningCallIds = [];
-      }
+  // Also acts as a catch-all for any event shape that contains a reasoning item.
+  const reasoningItem = data.item?.type === "reasoning" ? data.item : (data.item?.item?.type === "reasoning" ? data.item.item : null);
+  if (reasoningItem && reasoningItem.encrypted_content) {
+    state.pendingReasoningItem = {
+      id: reasoningItem.id,
+      type: "reasoning",
+      summary: Array.isArray(reasoningItem.summary) ? reasoningItem.summary : [],
+      encrypted_content: reasoningItem.encrypted_content
+    };
+    // Bind to any function_calls that were emitted *before* their reasoning
+    // closed (rare, but the streaming order is not guaranteed).
+    if (Array.isArray(state.pendingReasoningCallIds) && state.pendingReasoningCallIds.length > 0) {
+      storeReasoningForCallIds(state.pendingReasoningCallIds, state.pendingReasoningItem);
+      state.pendingReasoningCallIds = [];
     }
-    return null;
+    // Only swallow the event if it was specifically an output_item.done for reasoning.
+    // Otherwise leave it for its primary handler.
+    if (eventType === "response.output_item.done" || eventType === "response.output_item.added") {
+      return null;
+    }
   }
 
   // Function call started (standard function_call or custom_tool_call)

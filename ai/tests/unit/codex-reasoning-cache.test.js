@@ -35,6 +35,59 @@ function feed(events, state) {
   return out;
 }
 
+import { CodexExecutor } from "../../open-sse/executors/codex.js";
+
+describe("CodexExecutor transformRequest", () => {
+  let executor;
+
+  beforeEach(() => {
+    executor = new CodexExecutor();
+  });
+
+  it("sets include=reasoning.encrypted_content on first-turn requests", () => {
+    const body = {
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
+      reasoning_effort: "medium",
+    };
+    const result = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(result.include).toEqual(["reasoning.encrypted_content"]);
+  });
+
+  it("skips include on follow-up turns that already have function_call history", () => {
+    const body = {
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "read file" }] },
+        { type: "function_call", call_id: "call_A", name: "read", arguments: "{}" },
+        { type: "function_call_output", call_id: "call_A", output: "file contents" },
+      ],
+      reasoning_effort: "medium",
+    };
+    const result = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(result.include).toBeUndefined();
+  });
+
+  it("skips include on follow-up turns that already have function_call_output items", () => {
+    const body = {
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "read file" }] },
+        { type: "function_call_output", call_id: "call_A", output: "file contents" },
+      ],
+      reasoning_effort: "medium",
+    };
+    const result = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(result.include).toBeUndefined();
+  });
+
+  it("does NOT set include when reasoning effort is none", () => {
+    const body = {
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
+      reasoning: { effort: "none", summary: "auto" },
+    };
+    const result = executor.transformRequest("gpt-5.4", body, true, {});
+    expect(result.include).toBeUndefined();
+  });
+});
+
 describe("codexReasoningCache (basic)", () => {
   beforeEach(() => _resetCacheForTests());
 
