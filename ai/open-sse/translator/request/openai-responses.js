@@ -7,6 +7,7 @@
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
 import { normalizeResponsesInput } from "../helpers/responsesApiHelper.js";
+import { getReasoningForCallId } from "../../utils/codexReasoningCache.js";
 
 // Responses API enforces max 64 chars on call_id (#393)
 const MAX_CALL_ID_LEN = 64;
@@ -195,6 +196,26 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
         hasSystemMessage = true;
       }
       continue; // Skip system messages in input
+    }
+
+    // For assistant messages with tool_calls, inject any cached reasoning
+    // items before the message + function_call items. Codex requires the
+    // encrypted reasoning to be replayed in subsequent turns; the chat.completions
+    // wire format has no slot to carry it, so we look it up by call_id from
+    // the server-side cache populated by the response translator.
+    if (msg.role === "assistant" && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+      const seenReasoningIds = new Set();
+      for (const tc of msg.tool_calls) {
+        const reasoning = getReasoningForCallId(tc.id);
+        if (!reasoning || seenReasoningIds.has(reasoning.id)) continue;
+        seenReasoningIds.add(reasoning.id);
+        result.input.push({
+          type: "reasoning",
+          id: reasoning.id,
+          summary: reasoning.summary || [],
+          encrypted_content: reasoning.encrypted_content
+        });
+      }
     }
 
     // Convert user/assistant messages to input items

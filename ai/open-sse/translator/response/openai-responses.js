@@ -4,6 +4,7 @@
  */
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
+import { storeReasoningForCallIds } from "../../utils/codexReasoningCache.js";
 
 /**
  * Translate OpenAI chunk to Responses API events
@@ -432,10 +433,41 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     return null;
   }
 
+  // Capture completed reasoning items for cross-turn replay (Codex requirement).
+  // The `done` event carries the full item including `encrypted_content`.
+  if (eventType === "response.output_item.done" && data.item?.type === "reasoning") {
+    if (data.item.encrypted_content) {
+      state.pendingReasoningItem = {
+        id: data.item.id,
+        type: "reasoning",
+        summary: Array.isArray(data.item.summary) ? data.item.summary : [],
+        encrypted_content: data.item.encrypted_content
+      };
+      // Bind to any function_calls that were emitted *before* their reasoning
+      // closed (rare, but the streaming order is not guaranteed).
+      if (Array.isArray(state.pendingReasoningCallIds) && state.pendingReasoningCallIds.length > 0) {
+        storeReasoningForCallIds(state.pendingReasoningCallIds, state.pendingReasoningItem);
+        state.pendingReasoningCallIds = [];
+      }
+    }
+    return null;
+  }
+
   // Function call started (standard function_call or custom_tool_call)
   if (eventType === "response.output_item.added" && (data.item?.type === "function_call" || data.item?.type === "custom_tool_call")) {
     const item = data.item;
     state.currentToolCallId = item.call_id || `call_${Date.now()}`;
+
+    // Bind the most recently completed reasoning item to this call_id so we
+    // can replay it on the next turn. Multiple parallel function_calls in a
+    // single turn share the same reasoning item.
+    if (state.pendingReasoningItem) {
+      storeReasoningForCallIds(state.currentToolCallId, state.pendingReasoningItem);
+    } else {
+      // Reasoning hasn't closed yet — remember to bind once it does.
+      if (!state.pendingReasoningCallIds) state.pendingReasoningCallIds = [];
+      state.pendingReasoningCallIds.push(state.currentToolCallId);
+    }
 
     return {
       id: state.chatId,
@@ -491,6 +523,27 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
 
   // Response completed
   if (eventType === "response.completed") {
+    // Robustness net: if streaming events didn't carry encrypted_content (older
+    // API shapes), the final response.completed event often includes the full
+    // output array with intact reasoning items. Walk it once and bind any
+    // reasoning to the function_calls that follow it in document order.
+    const outputItems = data.response?.output;
+    if (Array.isArray(outputItems)) {
+      let pendingReasoning = null;
+      for (const out of outputItems) {
+        if (out?.type === "reasoning" && out.encrypted_content) {
+          pendingReasoning = {
+            id: out.id,
+            type: "reasoning",
+            summary: Array.isArray(out.summary) ? out.summary : [],
+            encrypted_content: out.encrypted_content
+          };
+        } else if (pendingReasoning && (out?.type === "function_call" || out?.type === "custom_tool_call") && out.call_id) {
+          storeReasoningForCallIds(out.call_id, pendingReasoning);
+        }
+      }
+    }
+
     // Extract usage from response.completed event
     const responseUsage = data.response?.usage;
     if (responseUsage && typeof responseUsage === "object") {
