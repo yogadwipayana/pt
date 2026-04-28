@@ -15,6 +15,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN apk --no-cache add nodejs
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN bunx prisma generate
 RUN bun run build
 
 FROM ${BUN_IMAGE} AS runner
