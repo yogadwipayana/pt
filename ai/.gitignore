@@ -68,3 +68,6 @@ deploy*.sh
 ecosystem.config.*
 .worktrees/
 
+# Prisma generated client
+src/generated/
+
