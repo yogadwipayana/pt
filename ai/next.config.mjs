@@ -8,7 +8,7 @@ const nextConfig = {
   allowedDevOrigins: ['localhost', 'ai.dwipa.my.id', 'dwipa.my.id'],
   output: "standalone",
   outputFileTracingRoot: __dirname,
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: ["better-sqlite3", "node-forge"],
   images: {
     unoptimized: true
   },
