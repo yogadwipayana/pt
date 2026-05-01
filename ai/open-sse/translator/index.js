@@ -70,7 +70,7 @@ function stripContentTypes(body, stripList = []) {
 }
 
 // Translate request: source -> openai -> target
-export function translateRequest(sourceFormat, targetFormat, model, body, stream = true, credentials = null, provider = null, reqLogger = null, stripList = [], connectionId = null) {
+export function translateRequest(sourceFormat, targetFormat, model, body, stream = true, credentials = null, provider = null, reqLogger = null, stripList = [], connectionId = null, clientTool = null) {
   ensureInitialized();
   let result = body;
 
@@ -132,15 +132,14 @@ export function translateRequest(sourceFormat, targetFormat, model, body, stream
     }
   }
 
-  // Antigravity cloaking: rename client tools + inject decoys (anti-ban)
-  // Skip if client is native AG (userAgent = antigravity)
-  if (provider === FORMATS.ANTIGRAVITY && body.userAgent !== FORMATS.ANTIGRAVITY) {
-    const { cloakedBody, toolNameMap } = AntigravityExecutor.cloakTools(result);
-    result = cloakedBody;
-    if (toolNameMap?.size > 0) {
-      result._toolNameMap = toolNameMap;
-    }
-  }
+  // Antigravity cloaking disabled
+  // if (provider === FORMATS.ANTIGRAVITY && body.userAgent !== FORMATS.ANTIGRAVITY) {
+  //   const { cloakedBody, toolNameMap } = AntigravityExecutor.cloakTools(result);
+  //   result = cloakedBody;
+  //   if (toolNameMap?.size > 0) {
+  //     result._toolNameMap = toolNameMap;
+  //   }
+  // }
 
   return result;
 }

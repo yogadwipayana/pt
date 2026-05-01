@@ -71,3 +71,4 @@ ecosystem.config.*
 # Prisma generated client
 src/generated/
 
+scripts/agSniffer/*

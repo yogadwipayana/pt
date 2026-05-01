@@ -6,6 +6,7 @@ import fs from "node:fs";
 import lockfile from "proper-lockfile";
 import { DATA_DIR } from "@/lib/dataDir.js";
 
+const DEFAULT_MITM_ROUTER_BASE = "http://localhost:4000";
 const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
 const DB_FILE = isCloud ? null : path.join(DATA_DIR, "db.json");
 
@@ -15,11 +16,17 @@ if (!isCloud && !fs.existsSync(DATA_DIR)) {
 
 const DEFAULT_SETTINGS = {
   cloudEnabled: false,
+  tunnelEnabled: false,
+  tunnelUrl: "",
+  tunnelProvider: "cloudflare",
+  tailscaleEnabled: false,
+  tailscaleUrl: "",
   stickyRoundRobinLimit: 3,
   providerStrategies: {},
   comboStrategy: "fallback",
   comboStrategies: {},
   requireLogin: true,
+  tunnelDashboardAccess: true,
   enableObservability: true,
   observabilityEnabled: true,
   observabilityMaxRecords: 1000,
@@ -29,6 +36,10 @@ const DEFAULT_SETTINGS = {
   outboundProxyEnabled: false,
   outboundProxyUrl: "",
   outboundNoProxy: "",
+  mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+  rtkEnabled: true,
+  cavemanEnabled: false,
+  cavemanLevel: "full",
 };
 
 function cloneDefaultData() {
@@ -38,7 +49,10 @@ function cloneDefaultData() {
     providerNodes: [],
     proxyPools: [],
     modelAliases: {},
+    customModels: [],
+    mitmAlias: {},
     combos: [],
+    apiKeys: [],
     settings: { ...DEFAULT_SETTINGS },
     pricing: {},
   };
@@ -498,6 +512,46 @@ export async function deleteModelAlias(alias) {
   await safeWrite(db);
 }
 
+// Custom models — user-added models with explicit type (llm/image/tts/embedding/...)
+export async function getCustomModels() {
+  const db = await getDb();
+  return db.data.customModels || [];
+}
+
+export async function addCustomModel({ providerAlias, id, type = "llm", name }) {
+  const db = await getDb();
+  if (!db.data.customModels) db.data.customModels = [];
+  const exists = db.data.customModels.some(
+    (m) => m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type
+  );
+  if (exists) return false;
+  db.data.customModels.push({ providerAlias, id, type, name: name || id });
+  await safeWrite(db);
+  return true;
+}
+
+export async function deleteCustomModel({ providerAlias, id, type = "llm" }) {
+  const db = await getDb();
+  if (!db.data.customModels) return;
+  db.data.customModels = db.data.customModels.filter(
+    (m) => !(m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type)
+  );
+  await safeWrite(db);
+}
+
+export async function getMitmAlias(toolName) {
+  const db = await getDb();
+  const all = db.data.mitmAlias || {};
+  if (toolName) return all[toolName] || {};
+  return all;
+}
+
+export async function setMitmAliasAll(toolName, mappings) {
+  const db = await getDb();
+  if (!db.data.mitmAlias) db.data.mitmAlias = {};
+  db.data.mitmAlias[toolName] = mappings || {};
+  await safeWrite(db);
+}
 
 export async function getCombos() {
   const db = await getDb();
@@ -523,6 +577,7 @@ export async function createCombo(data) {
     id: uuidv4(),
     name: data.name,
     models: data.models || [],
+    kind: data.kind || null,
     createdAt: now,
     updatedAt: now,
   };

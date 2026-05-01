@@ -12,6 +12,23 @@ export const GITHUB_CONFIG = {
   changelogUrl: "",
 };
 
+// Updater configuration
+export const UPDATER_CONFIG = {
+  npmPackageName: "dwipa",
+  installCmd: "npm install -g dwipa@latest",
+  exitDelayMs: 500,
+  statusPort: 4001,
+  statusPollIntervalMs: 1000,
+  statusLogTailLines: 8,
+  installRetries: 3,
+  installRetryDelayMs: 5000,
+  lingerAfterDoneMs: 30000,
+  waitForExitMinMs: 3000,
+  waitForExitMaxMs: 15000,
+  waitForExitCheckMs: 500,
+  appPort: 4000,
+};
+
 // Theme configuration
 export const THEME_CONFIG = {
   storageKey: "theme",
@@ -49,6 +66,8 @@ export const PROVIDER_ENDPOINTS = {
   "minimax-cn": "https://api.minimaxi.com/anthropic/v1/messages",
   alicode: "https://coding.dashscope.aliyuncs.com/v1/chat/completions",
   "alicode-intl": "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions",
+  "volcengine-ark": "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions",
+  byteplus: "https://ark.ap-southeast.bytepluses.com/api/coding/v3/chat/completions",
   openai: "https://api.openai.com/v1/chat/completions",
   anthropic: "https://api.anthropic.com/v1/messages",
   gemini: "https://generativelanguage.googleapis.com/v1beta/models",
@@ -61,6 +80,7 @@ export {
   FREE_PROVIDERS,
   OAUTH_PROVIDERS,
   APIKEY_PROVIDERS,
+  WEB_COOKIE_PROVIDERS,
   AI_PROVIDERS,
   AUTH_METHODS,
 } from "./providers.js";
