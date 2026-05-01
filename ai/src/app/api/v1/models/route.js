@@ -1,6 +1,30 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
 import { getProviderAlias, isAnthropicCompatibleProvider, isOpenAICompatibleProvider } from "@/shared/constants/providers";
 import { getProviderConnections, getCombos } from "@/lib/localDb";
+import { dbGetAdminModels } from "@/lib/adminPostgres";
+
+function buildAllowedModelIds(dbItems) {
+  const allowed = new Set();
+  for (const m of dbItems) {
+    if (!m.modelId) continue;
+    allowed.add(m.modelId);
+    if (m.providerCode) {
+      allowed.add(`${m.providerCode}/${m.modelId}`);
+    }
+    if (m.modelId.includes("/")) {
+      allowed.add(m.modelId.split("/").pop());
+    }
+  }
+  return allowed;
+}
+
+function isModelAllowed(modelId, allowedModelIds) {
+  if (allowedModelIds.size === 0) return true;
+  if (allowedModelIds.has(modelId)) return true;
+  const baseId = modelId.includes("/") ? modelId.split("/").pop() : modelId;
+  if (allowedModelIds.has(baseId)) return true;
+  return false;
+}
 
 const parseOpenAIStyleModels = (data) => {
   if (Array.isArray(data)) return data;
@@ -105,6 +129,18 @@ export async function GET() {
       console.log("Could not fetch dwipas");
     }
 
+    // Load enabled model catalog from DB
+    let allowedModelIds = new Set();
+    try {
+      const dbResult = await dbGetAdminModels();
+      const activeDbItems = dbResult.items.filter(
+        (m) => m.visibility === "visible" && m.accessState === "enabled"
+      );
+      allowedModelIds = buildAllowedModelIds(activeDbItems);
+    } catch {
+      // DB unavailable — allow all models
+    }
+
     // Build first active connection per provider (connections already sorted by priority)
     const activeConnectionByProvider = new Map();
     for (const conn of connections) {
@@ -135,15 +171,18 @@ export async function GET() {
       // DB unavailable or no active providers -> return all static models
       for (const [alias, providerModels] of Object.entries(PROVIDER_MODELS)) {
         for (const model of providerModels) {
-          models.push({
-            id: `${alias}/${model.id}`,
-            object: "model",
-            created: timestamp,
-            owned_by: alias,
-            permission: [],
-            root: model.id,
-            parent: null,
-          });
+          const id = `${alias}/${model.id}`;
+          if (isModelAllowed(id, allowedModelIds)) {
+            models.push({
+              id,
+              object: "model",
+              created: timestamp,
+              owned_by: alias,
+              permission: [],
+              root: model.id,
+              parent: null,
+            });
+          }
         }
       }
     } else {
@@ -194,22 +233,25 @@ export async function GET() {
           .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "");
 
         for (const modelId of modelIds) {
-          models.push({
-            id: `${outputAlias}/${modelId}`,
-            object: "model",
-            created: timestamp,
-            owned_by: outputAlias,
-            permission: [],
-            root: modelId,
-            parent: null,
-          });
+          const id = `${outputAlias}/${modelId}`;
+          if (isModelAllowed(id, allowedModelIds)) {
+            models.push({
+              id,
+              object: "model",
+              created: timestamp,
+              owned_by: outputAlias,
+              permission: [],
+              root: modelId,
+              parent: null,
+            });
+          }
         }
       }
     }
 
     return Response.json({
       object: "list",
-      data: models.filter((m) => m.owned_by === "dwipa"),
+      data: models,
     }, {
       headers: {
         "Access-Control-Allow-Origin": "*",

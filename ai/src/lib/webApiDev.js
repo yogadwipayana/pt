@@ -889,16 +889,18 @@ export async function getPublicModels(request) {
   try {
     const dbResult = await dbGetAdminModels();
     if (dbResult.items.length > 0) {
-      items = dbResult.items.map((m) => ({
-        slug: m.slug,
-        name: m.name,
-        provider: m.provider,
-        providerCode: m.providerCode,
-        contextWindow: m.contextWindow,
-        inputPrice: m.inputPrice,
-        outputPrice: m.outputPrice,
-        modelId: m.modelId,
-      }));
+      items = dbResult.items
+        .filter((m) => m.visibility === "visible" && m.accessState === "enabled")
+        .map((m) => ({
+          slug: m.slug,
+          name: m.name,
+          provider: m.provider,
+          providerCode: m.providerCode,
+          contextWindow: m.contextWindow,
+          inputPrice: m.inputPrice,
+          outputPrice: m.outputPrice,
+          modelId: m.modelId,
+        }));
     }
   } catch {
     // Database unavailable or ModelCatalog empty — return empty

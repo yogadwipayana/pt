@@ -295,8 +295,18 @@ async function ensurePlanQuotaWindow(userId, planSlug, updatedAt = nowIso()) {
 }
 
 async function ensureAdminSchema() {
-  if (!adminSchemaReadyPromise) {
-    adminSchemaReadyPromise = query(`
+  if (adminSchemaReadyPromise) {
+    return adminSchemaReadyPromise;
+  }
+
+  // Run every DDL statement once per process. We cache the in-flight promise so
+  // concurrent callers wait on the same migration pass instead of replaying ~20
+  // CREATE/ALTER statements each — over Neon's HTTP driver every statement is a
+  // separate roundtrip, which previously made cold requests take 15+ seconds.
+  // If the migration fails we clear the cached promise so the next caller can
+  // retry; otherwise a transient blip would brick the process permanently.
+  adminSchemaReadyPromise = (async () => {
+    await query(`
       CREATE TABLE IF NOT EXISTS "AdminUserState" (
         "userId" text PRIMARY KEY REFERENCES "User"("id") ON DELETE CASCADE,
         "isBanned" boolean NOT NULL DEFAULT false,
@@ -307,10 +317,7 @@ async function ensureAdminSchema() {
         "updatedAt" timestamp without time zone NOT NULL DEFAULT NOW()
       )
     `);
-  }
-
-  await adminSchemaReadyPromise;
-  await query(`
+    await query(`
     CREATE TABLE IF NOT EXISTS "User" (
       "id" text PRIMARY KEY,
       "name" text NOT NULL,
@@ -710,6 +717,12 @@ async function ensureAdminSchema() {
     // invariant is also enforced in application code (ensurePlanQuotaWindow).
     console.warn("[adminPostgres] QuotaWindow dedupe/index skipped:", error?.message || error);
   }
+  })().catch((error) => {
+    adminSchemaReadyPromise = null;
+    throw error;
+  });
+
+  return adminSchemaReadyPromise;
 }
 
 function normalizeEmail(email) {
