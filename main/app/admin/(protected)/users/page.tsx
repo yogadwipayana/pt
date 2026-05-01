@@ -21,6 +21,8 @@ async function getUsers(searchParams: Record<string, string | string[] | undefin
       q: stringParam(searchParams.q),
       plan: stringParam(searchParams.plan),
       status: stringParam(searchParams.status),
+      created: stringParam(searchParams.created),
+      active: stringParam(searchParams.active),
       cursor: stringParam(searchParams.cursor)
     }, { cache: "no-store", headers: cookie ? { cookie } : undefined });
   } catch {
@@ -35,11 +37,56 @@ function stringParam(value: string | string[] | undefined) {
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const resolvedSearchParams = await searchParams;
   const users = await getUsers(resolvedSearchParams);
+  const q = stringParam(resolvedSearchParams.q) || "";
+  const plan = stringParam(resolvedSearchParams.plan) || "";
+  const status = stringParam(resolvedSearchParams.status) || "";
+  const created = stringParam(resolvedSearchParams.created) || "";
+  const active = stringParam(resolvedSearchParams.active) || "";
+  const summaryCards = [
+    {
+      id: "total",
+      label: "Total users",
+      value: users.summary.totalUsers,
+      href: "/admin/users",
+      active: !q && !plan && !status && !created && !active,
+    },
+    {
+      id: "new",
+      label: "New today",
+      value: users.summary.newUsersToday,
+      href: "/admin/users?created=today",
+      active: created === "today",
+    },
+    {
+      id: "active",
+      label: "Active 24h",
+      value: users.summary.activeUsers24h,
+      href: "/admin/users?active=24h",
+      active: active === "24h",
+    },
+    {
+      id: "pro",
+      label: "Pro users",
+      value: users.summary.proUsers,
+      href: "/admin/users?plan=pro",
+      active: plan === "pro",
+    },
+    {
+      id: "payg",
+      label: "PayG users",
+      value: users.summary.paygUsers,
+      href: "/admin/users?plan=payg",
+      active: plan === "payg",
+    },
+  ];
+
   return (
     <section>
       <h2 className="text-[24px] leading-[0.98] tracking-[-0.04em] sm:text-[30px]">{adminCopy.usersTitle}</h2>
       <p className="mt-2 max-w-[520px] text-[10px] leading-[1.55] text-[#8a847a] sm:text-[11px]">{adminCopy.usersDescription}</p>
       <form className="mt-6 grid gap-3 border border-[#d8d0c3] bg-[#fbfaf7] p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <input type="hidden" name="created" value={created} />
+        <input type="hidden" name="active" value={active} />
         <input name="q" defaultValue={stringParam(resolvedSearchParams.q) || ""} placeholder="Search email or name" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
         <select name="plan" defaultValue={stringParam(resolvedSearchParams.plan) || ""} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]">
           <option value="">All plans</option>
@@ -57,11 +104,18 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       </form>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Total users</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(users.summary.totalUsers ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">New today</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(users.summary.newUsersToday ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Active 24h</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(users.summary.activeUsers24h ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Pro users</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(users.summary.proUsers ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">PayG users</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(users.summary.paygUsers ?? 0)}</p></article>
+        {summaryCards.map((card) => (
+          <Link
+            key={card.id}
+            href={card.href}
+            className={`block border bg-[#fbfaf7] p-4 transition-colors hover:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black ${card.active ? "border-black" : "border-[#b8b1a5]"}`}
+            aria-label={`Filter users by ${card.label}`}
+          >
+            <p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">{card.label}</p>
+            <p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(card.value ?? 0)}</p>
+            <p className="mt-4 text-[8px] uppercase tracking-[0.14em] text-[#6f695f]">{card.active ? "Selected" : "Open"}</p>
+          </Link>
+        ))}
       </div>
 
       <div className="mt-6">

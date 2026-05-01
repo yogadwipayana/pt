@@ -84,6 +84,21 @@ export async function listAdminAuditEvents(env, urlInput = "http://local", defau
       params.push(value);
     }
   }
+  if (url.searchParams.get("date") === "today") {
+    const todayFilter = new Date();
+    todayFilter.setUTCHours(0, 0, 0, 0);
+    where.push("createdAt >= ?");
+    params.push(todayFilter.toISOString());
+  }
+  if (!url.searchParams.get("action") && url.searchParams.get("group") === "payment_approvals") {
+    where.push("action IN ('payment_approved', 'payment.approve')");
+  }
+  if (!url.searchParams.get("action") && url.searchParams.get("group") === "payment_rejections") {
+    where.push("action IN ('payment_rejected', 'payment.reject')");
+  }
+  if (!url.searchParams.get("targetType") && url.searchParams.get("group") === "catalog") {
+    where.push("(targetType IN ('model','plan') OR action LIKE 'model.%' OR action LIKE 'plan.%')");
+  }
   if (cursor) {
     where.push("(createdAt < ? OR (createdAt = ? AND id < ?))");
     params.push(cursor.createdAt, cursor.createdAt, cursor.id);
@@ -99,9 +114,9 @@ export async function listAdminAuditEvents(env, urlInput = "http://local", defau
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const summary = await env.DB.prepare(`SELECT COUNT(*) AS eventsToday,
-    SUM(CASE WHEN action = 'payment.approve' THEN 1 ELSE 0 END) AS paymentApprovalsToday,
-    SUM(CASE WHEN action = 'payment.reject' THEN 1 ELSE 0 END) AS paymentRejectionsToday,
-    SUM(CASE WHEN targetType IN ('model','plan') THEN 1 ELSE 0 END) AS catalogChangesToday
+    SUM(CASE WHEN action IN ('payment_approved', 'payment.approve') THEN 1 ELSE 0 END) AS paymentApprovalsToday,
+    SUM(CASE WHEN action IN ('payment_rejected', 'payment.reject') THEN 1 ELSE 0 END) AS paymentRejectionsToday,
+    SUM(CASE WHEN targetType IN ('model','plan') OR action LIKE 'model.%' OR action LIKE 'plan.%' THEN 1 ELSE 0 END) AS catalogChangesToday
     FROM admin_audit_events WHERE createdAt >= ?`).bind(today.toISOString()).first();
 
   return {

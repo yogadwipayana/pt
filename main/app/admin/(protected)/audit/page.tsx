@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import Link from "next/link";
 
 import { adminCopy, formatAdminDate } from "@/content/admin";
 import { webApi } from "@/lib/web-api";
@@ -22,6 +23,8 @@ async function getAuditEvents(searchParams: Record<string, string | string[] | u
       targetId: stringParam(searchParams.targetId),
       actorEmail: stringParam(searchParams.actorEmail),
       action: stringParam(searchParams.action),
+      date: stringParam(searchParams.date),
+      group: stringParam(searchParams.group),
       cursor: stringParam(searchParams.cursor),
     }, { cache: "no-store", headers: cookie ? { cookie } : undefined });
   } catch {
@@ -36,6 +39,42 @@ function stringParam(value: string | string[] | undefined) {
 export default async function AdminAuditPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const resolvedSearchParams = await searchParams;
   const events = await getAuditEvents(resolvedSearchParams);
+  const actorEmail = stringParam(resolvedSearchParams.actorEmail) || "";
+  const action = stringParam(resolvedSearchParams.action) || "";
+  const targetType = stringParam(resolvedSearchParams.targetType) || "";
+  const targetId = stringParam(resolvedSearchParams.targetId) || "";
+  const date = stringParam(resolvedSearchParams.date) || "";
+  const group = stringParam(resolvedSearchParams.group) || "";
+  const summaryCards = [
+    {
+      id: "today",
+      label: "Events today",
+      value: events.summary.eventsToday,
+      href: "/admin/audit?date=today",
+      active: date === "today" && !group,
+    },
+    {
+      id: "approvals",
+      label: "Payment approvals",
+      value: events.summary.paymentApprovalsToday,
+      href: "/admin/audit?date=today&group=payment_approvals",
+      active: date === "today" && group === "payment_approvals",
+    },
+    {
+      id: "rejections",
+      label: "Payment rejections",
+      value: events.summary.paymentRejectionsToday,
+      href: "/admin/audit?date=today&group=payment_rejections",
+      active: date === "today" && group === "payment_rejections",
+    },
+    {
+      id: "catalog",
+      label: "Catalog changes",
+      value: events.summary.catalogChangesToday,
+      href: "/admin/audit?date=today&group=catalog",
+      active: date === "today" && group === "catalog",
+    },
+  ];
 
   return (
     <section>
@@ -44,19 +83,29 @@ export default async function AdminAuditPage({ searchParams }: { searchParams: P
 
       <AdminAuditFilterModal>
         <form className="grid gap-3 p-5 sm:grid-cols-2" method="get">
-          <input name="actorEmail" defaultValue={stringParam(resolvedSearchParams.actorEmail) || ""} placeholder="Actor email" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
-          <input name="action" defaultValue={stringParam(resolvedSearchParams.action) || ""} placeholder="Action" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
-          <input name="targetType" defaultValue={stringParam(resolvedSearchParams.targetType) || ""} placeholder="Target type" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
-          <input name="targetId" defaultValue={stringParam(resolvedSearchParams.targetId) || ""} placeholder="Target id" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
+          <input type="hidden" name="date" value={date} />
+          <input type="hidden" name="group" value={group} />
+          <input name="actorEmail" defaultValue={actorEmail} placeholder="Actor email" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
+          <input name="action" defaultValue={action} placeholder="Action" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
+          <input name="targetType" defaultValue={targetType} placeholder="Target type" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
+          <input name="targetId" defaultValue={targetId} placeholder="Target id" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
           <button type="submit" className="min-h-[44px] rounded-none bg-black px-4 text-[10px] uppercase tracking-[0.14em] text-white">Apply filters</button>
         </form>
       </AdminAuditFilterModal>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Events today</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(events.summary.eventsToday ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Payment approvals</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(events.summary.paymentApprovalsToday ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Payment rejections</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(events.summary.paymentRejectionsToday ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Catalog changes</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(events.summary.catalogChangesToday ?? 0)}</p></article>
+        {summaryCards.map((card) => (
+          <Link
+            key={card.id}
+            href={card.href}
+            className={`block border bg-[#fbfaf7] p-4 transition-colors hover:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black ${card.active ? "border-black" : "border-[#b8b1a5]"}`}
+            aria-label={`Filter audit events by ${card.label}`}
+          >
+            <p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">{card.label}</p>
+            <p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(card.value ?? 0)}</p>
+            <p className="mt-4 text-[8px] uppercase tracking-[0.14em] text-[#6f695f]">{card.active ? "Selected" : "Open"}</p>
+          </Link>
+        ))}
       </div>
 
       <div className="mt-6">

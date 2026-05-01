@@ -1365,6 +1365,7 @@ export async function dbGetAdminPayments(request) {
   const status = queryParam(request, "status");
   const purpose = queryParam(request, "purpose");
   const q = queryParam(request, "q");
+  const queue = queryParam(request, "queue");
   const cursor = decodeCursor(queryParam(request, "cursor"));
 
   const filters = [];
@@ -1373,6 +1374,8 @@ export async function dbGetAdminPayments(request) {
   if (status) {
     params.push(status);
     filters.push(`p."status" = $${params.length}`);
+  } else if (queue === "review") {
+    filters.push(`p."status" IN ('pending_transfer', 'submitted', 'under_review')`);
   }
   if (purpose) {
     params.push(purpose);
@@ -1649,8 +1652,15 @@ export async function dbGetAdminUsers(request) {
   const limit = limitFromRequest(request);
   const q = queryParam(request, "q");
   const plan = queryParam(request, "plan");
+  const status = queryParam(request, "status");
+  const created = queryParam(request, "created");
+  const active = queryParam(request, "active");
   const cursor = decodeCursor(queryParam(request, "cursor"));
   const allRows = await getUserPlanRows();
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const todayIso = todayStart.toISOString();
+  const activeSinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const filteredRows = allRows.filter((row) => {
     if (q) {
@@ -1659,6 +1669,9 @@ export async function dbGetAdminUsers(request) {
       if (!matches) return false;
     }
     if (plan && row.planSlug !== plan) return false;
+    if (status && row.status !== status) return false;
+    if (created === "today" && toIso(row.createdAt) < todayIso) return false;
+    if (active === "24h" && (!row.lastSeenAt || toIso(row.lastSeenAt) < activeSinceIso)) return false;
     if (cursor) {
       const createdAt = toIso(row.createdAt);
       if (createdAt > cursor.createdAt) return false;
@@ -1670,6 +1683,8 @@ export async function dbGetAdminUsers(request) {
   const items = filteredRows.slice(0, limit).map(mapUserRow);
   const summary = {
     totalUsers: allRows.length,
+    newUsersToday: allRows.filter((row) => toIso(row.createdAt) >= todayIso).length,
+    activeUsers24h: allRows.filter((row) => row.lastSeenAt && toIso(row.lastSeenAt) >= activeSinceIso).length,
     proUsers: allRows.filter((row) => row.planSlug === "pro").length,
     paygUsers: allRows.filter((row) => row.planSlug === "payg").length,
     freeUsers: allRows.filter((row) => row.planSlug === "free").length,
@@ -2220,6 +2235,12 @@ export async function dbGetAdminUsageRequests(request) {
   const provider = queryParam(request, "provider");
   const model = queryParam(request, "model");
   const userId = queryParam(request, "userId");
+  const from = queryParam(request, "from");
+  const to = queryParam(request, "to");
+  const outcome = queryParam(request, "outcome");
+  const hasTokens = queryParam(request, "hasTokens");
+  const hasCost = queryParam(request, "hasCost");
+  const hasLatency = queryParam(request, "hasLatency");
   const cursor = decodeCursor(queryParam(request, "cursor"));
 
   const filters = [];
@@ -2231,12 +2252,37 @@ export async function dbGetAdminUsageRequests(request) {
       filters.push(`${column} = $${params.length}`);
     }
   }
+  if (!status && outcome === "failed") {
+    filters.push(`r."status" <> 'success'`);
+  }
+  if (from) {
+    params.push(from);
+    filters.push(`r."createdAt" >= $${params.length}::timestamp`);
+  }
+  if (to) {
+    params.push(to);
+    filters.push(`r."createdAt" <= $${params.length}::timestamp`);
+  }
+  if (hasTokens === "true") {
+    filters.push(`(r."inputTokens" > 0 OR r."outputTokens" > 0)`);
+  }
+  if (hasCost === "true") {
+    filters.push(`COALESCE(uc."chargedCostUsd", 0) > 0`);
+  }
+  if (hasLatency === "true") {
+    filters.push(`COALESCE(r."latencyMs", 0) > 0`);
+  }
+
+  const summaryFilters = [...filters];
+  const summaryParams = [...params];
+
   if (cursor) {
     params.push(cursor.createdAt, cursor.id);
     filters.push(`(r."createdAt", r."id") < ($${params.length - 1}::timestamp, $${params.length})`);
   }
 
   const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const summaryWhereSql = summaryFilters.length ? `WHERE ${summaryFilters.join(" AND ")}` : "";
   const rows = await query(`
     SELECT
       r.*,
@@ -2263,7 +2309,8 @@ export async function dbGetAdminUsageRequests(request) {
         COALESCE(AVG(r."latencyMs"), 0) AS "averageLatency"
       FROM "UsageRequest" r
       LEFT JOIN "UsageCharge" uc ON uc."usageRequestId" = r."id"
-    `),
+      ${summaryWhereSql}
+    `, summaryParams),
     query(`
       SELECT
         TO_CHAR(DATE_TRUNC('day', r."createdAt"), 'YYYY-MM-DD') AS "label",
@@ -2272,10 +2319,10 @@ export async function dbGetAdminUsageRequests(request) {
         COALESCE(SUM(uc."chargedCostUsd"), 0) AS "cost"
       FROM "UsageRequest" r
       LEFT JOIN "UsageCharge" uc ON uc."usageRequestId" = r."id"
-      WHERE r."createdAt" >= NOW() - INTERVAL '13 days'
+      ${summaryWhereSql ? `${summaryWhereSql} AND r."createdAt" >= NOW() - INTERVAL '13 days'` : `WHERE r."createdAt" >= NOW() - INTERVAL '13 days'`}
       GROUP BY DATE_TRUNC('day', r."createdAt")
       ORDER BY DATE_TRUNC('day', r."createdAt") ASC
-    `),
+    `, summaryParams),
   ]);
 
   const items = rows.slice(0, limit).map(mapUsageRow);
@@ -2298,22 +2345,56 @@ export async function dbGetAdminUsageRequests(request) {
   };
 }
 
-export async function dbGetAdminModels() {
+export async function dbGetAdminModels(request = null) {
   await ensureAdminSchema();
+  const q = request ? queryParam(request, "q") : null;
+  const provider = request ? queryParam(request, "provider") : null;
+  const visibility = request ? queryParam(request, "visibility") : null;
+  const accessState = request ? queryParam(request, "accessState") : null;
+  const pricing = request ? queryParam(request, "pricing") : null;
+  const sort = request ? queryParam(request, "sort") : null;
+  const filters = [];
+  const params = [];
+
+  if (q) {
+    params.push(`%${q.toLowerCase()}%`);
+    filters.push(`(LOWER("name") LIKE $${params.length} OR LOWER("modelId") LIKE $${params.length} OR LOWER("provider") LIKE $${params.length})`);
+  }
+  if (provider) {
+    params.push(provider);
+    filters.push(`"provider" = $${params.length}`);
+  }
+  if (visibility === "visible" || accessState === "enabled") {
+    filters.push(`"isActive" = true`);
+  }
+  if (visibility === "hidden" || accessState === "disabled") {
+    filters.push(`"isActive" = false`);
+  }
+  if (pricing === "missing") {
+    filters.push(`("inputPriceUsdPer1M" IS NULL OR "outputPriceUsdPer1M" IS NULL)`);
+  }
+
+  const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const orderSql = sort === "provider" ? `"provider" ASC, "name" ASC, "modelId" ASC` : `"sortOrder" ASC, "name" ASC`;
   const rows = await query(`
     SELECT *
     FROM "ModelCatalog"
-    ORDER BY "sortOrder" ASC, "name" ASC
-  `);
+    ${whereSql}
+    ORDER BY ${orderSql}
+  `, params);
+  const summaryRows = await query(`SELECT * FROM "ModelCatalog"`);
 
   return {
     items: rows.map(mapModel),
     nextCursor: null,
     summary: {
-      totalModels: rows.length,
-      enabledModels: rows.filter((row) => row.isActive).length,
-      disabledModels: rows.filter((row) => !row.isActive).length,
-      providersCount: new Set(rows.map((row) => row.provider)).size,
+      totalModels: summaryRows.length,
+      visibleModels: summaryRows.filter((row) => row.isActive).length,
+      hiddenModels: summaryRows.filter((row) => !row.isActive).length,
+      enabledModels: summaryRows.filter((row) => row.isActive).length,
+      disabledModels: summaryRows.filter((row) => !row.isActive).length,
+      providersCount: new Set(summaryRows.map((row) => row.provider)).size,
+      missingPricing: summaryRows.filter((row) => row.inputPriceUsdPer1M == null || row.outputPriceUsdPer1M == null).length,
     },
   };
 }
@@ -2559,6 +2640,8 @@ export async function dbGetAdminAuditEvents(request) {
   const action = queryParam(request, "action");
   const targetType = queryParam(request, "targetType");
   const targetId = queryParam(request, "targetId");
+  const date = queryParam(request, "date");
+  const group = queryParam(request, "group");
 
   const filters = [];
   const params = [];
@@ -2569,6 +2652,27 @@ export async function dbGetAdminAuditEvents(request) {
       filters.push(`${column} = $${params.length}`);
     }
   }
+  if (date === "today") {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    params.push(todayStart.toISOString());
+    filters.push(`"createdAt" >= $${params.length}::timestamp`);
+  }
+  if (!action && group === "payment_approvals") {
+    filters.push(`"action" IN ('payment_approved', 'payment.approve')`);
+  }
+  if (!action && group === "payment_rejections") {
+    filters.push(`"action" IN ('payment_rejected', 'payment.reject')`);
+  }
+  if (!targetType && group === "catalog") {
+    filters.push(`("targetType" IN ('model', 'plan') OR "action" LIKE 'model.%' OR "action" LIKE 'plan.%')`);
+  }
+
+  const summaryParams = [];
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  summaryParams.push(todayStart.toISOString());
+
   if (cursor) {
     params.push(cursor.createdAt, cursor.id);
     filters.push(`("createdAt", "id") < ($${params.length - 1}::timestamp, $${params.length})`);
@@ -2582,7 +2686,15 @@ export async function dbGetAdminAuditEvents(request) {
     ORDER BY "createdAt" DESC, "id" DESC
     LIMIT $${params.length + 1}
   `, [...params, limit + 1]);
-  const summary = await first(`SELECT COUNT(*)::int AS total FROM "AdminAuditEvent"`);
+  const summary = await first(`
+    SELECT
+      COUNT(*)::int AS "eventsToday",
+      COUNT(*) FILTER (WHERE "action" IN ('payment_approved', 'payment.approve'))::int AS "paymentApprovalsToday",
+      COUNT(*) FILTER (WHERE "action" IN ('payment_rejected', 'payment.reject'))::int AS "paymentRejectionsToday",
+      COUNT(*) FILTER (WHERE "targetType" IN ('model', 'plan') OR "action" LIKE 'model.%' OR "action" LIKE 'plan.%')::int AS "catalogChangesToday"
+    FROM "AdminAuditEvent"
+    WHERE "createdAt" >= $1::timestamp
+  `, summaryParams);
   const items = rows.slice(0, limit).map((row) => ({
     id: row.id,
     actorAdminEmail: row.actorAdminEmail,
@@ -2596,7 +2708,12 @@ export async function dbGetAdminAuditEvents(request) {
   return {
     items,
     nextCursor: rows.length > limit ? encodeCursor(items[items.length - 1]) : null,
-    summary: { total: safeNumber(summary?.total) },
+    summary: {
+      eventsToday: safeNumber(summary?.eventsToday),
+      paymentApprovalsToday: safeNumber(summary?.paymentApprovalsToday),
+      paymentRejectionsToday: safeNumber(summary?.paymentRejectionsToday),
+      catalogChangesToday: safeNumber(summary?.catalogChangesToday),
+    },
   };
 }
 

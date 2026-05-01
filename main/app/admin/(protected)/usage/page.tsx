@@ -28,8 +28,11 @@ async function getUsage(searchParams: Record<string, string | string[] | undefin
         model: stringParam(searchParams.model),
         from: stringParam(searchParams.from),
         to: stringParam(searchParams.to),
+        outcome: stringParam(searchParams.outcome),
+        hasTokens: stringParam(searchParams.hasTokens),
+        hasCost: stringParam(searchParams.hasCost),
+        hasLatency: stringParam(searchParams.hasLatency),
         cursor: stringParam(searchParams.cursor),
-        hasTokens: "true",
       },
       { cache: "no-store", headers: cookie ? { cookie } : undefined },
     );
@@ -49,7 +52,7 @@ function buildUsagePageHref(
 ) {
   const search = new URLSearchParams();
 
-  for (const key of ["userId", "status", "provider", "model", "from", "to"]) {
+  for (const key of ["userId", "status", "provider", "model", "from", "to", "outcome", "hasTokens", "hasCost", "hasLatency"]) {
     const value = stringParam(params[key]);
     if (value) search.set(key, value);
   }
@@ -117,6 +120,24 @@ export default async function AdminUsagePage({ searchParams }: { searchParams: P
   const usage = await getUsage(resolvedSearchParams);
   const cursor = stringParam(resolvedSearchParams.cursor) || null;
   const previousCursors = (stringParam(resolvedSearchParams.prev) || "").split(",").filter((value) => value !== "");
+  const userId = stringParam(resolvedSearchParams.userId) || "";
+  const provider = stringParam(resolvedSearchParams.provider) || "";
+  const model = stringParam(resolvedSearchParams.model) || "";
+  const from = stringParam(resolvedSearchParams.from) || "";
+  const to = stringParam(resolvedSearchParams.to) || "";
+  const status = stringParam(resolvedSearchParams.status) || "";
+  const outcome = stringParam(resolvedSearchParams.outcome) || "";
+  const hasTokens = stringParam(resolvedSearchParams.hasTokens) || "";
+  const hasCost = stringParam(resolvedSearchParams.hasCost) || "";
+  const hasLatency = stringParam(resolvedSearchParams.hasLatency) || "";
+  const summaryCards = [
+    { id: "requests", label: "Requests", value: usage.summary.requests, valueClassName: "text-[24px]" },
+    { id: "input-tokens", label: "Input tokens", value: usage.summary.inputTokens, valueClassName: "text-[18px]" },
+    { id: "output-tokens", label: "Output tokens", value: usage.summary.outputTokens, valueClassName: "text-[18px]" },
+    { id: "charged-cost", label: "Charged cost", value: usage.summary.chargedCost || "-", valueClassName: "text-[18px]" },
+    { id: "failed", label: "Failed", value: usage.summary.failedRequests, valueClassName: "text-[24px]" },
+    { id: "avg-latency", label: "Avg latency", value: usage.summary.averageLatency || "-", valueClassName: "text-[18px]" },
+  ];
 
   return (
     <section>
@@ -129,30 +150,34 @@ export default async function AdminUsagePage({ searchParams }: { searchParams: P
       </div>
 
       <form className="mt-6 grid gap-3 border border-[#d8d0c3] bg-[#fbfaf7] p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <input name="userId" defaultValue={stringParam(resolvedSearchParams.userId) || ""} placeholder="User id" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
-        <input name="provider" defaultValue={stringParam(resolvedSearchParams.provider) || ""} placeholder="Provider" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
-        <input name="model" defaultValue={stringParam(resolvedSearchParams.model) || ""} placeholder="Model" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
-        <select name="status" defaultValue={stringParam(resolvedSearchParams.status) || ""} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]">
+        <input type="hidden" name="outcome" value={outcome} />
+        <input type="hidden" name="hasTokens" value={hasTokens} />
+        <input type="hidden" name="hasCost" value={hasCost} />
+        <input type="hidden" name="hasLatency" value={hasLatency} />
+        <input name="userId" defaultValue={userId} placeholder="User id" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
+        <input name="provider" defaultValue={provider} placeholder="Provider" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
+        <input name="model" defaultValue={model} placeholder="Model" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
+        <select name="status" defaultValue={status} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]">
           <option value="">All statuses</option>
           <option value="success">Success</option>
           <option value="error">Error</option>
           <option value="rate_limited">Rate limited</option>
           <option value="payment_required">Payment required</option>
         </select>
-        <input name="from" defaultValue={stringParam(resolvedSearchParams.from) || ""} placeholder="From ISO date" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
-        <input name="to" defaultValue={stringParam(resolvedSearchParams.to) || ""} placeholder="To ISO date" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
+        <input name="from" defaultValue={from} placeholder="From ISO date" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
+        <input name="to" defaultValue={to} placeholder="To ISO date" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
         <button type="submit" className="min-h-[44px] rounded-none bg-black px-4 text-[8px] uppercase tracking-[0.16em] text-white sm:text-[9px]">
           Apply filters
         </button>
       </form>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Requests</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(usage.summary.requests ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Input tokens</p><p className="mt-2 text-[18px] leading-none tracking-[-0.04em] text-black">{String(usage.summary.inputTokens ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Output tokens</p><p className="mt-2 text-[18px] leading-none tracking-[-0.04em] text-black">{String(usage.summary.outputTokens ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Charged cost</p><p className="mt-2 text-[18px] leading-none tracking-[-0.04em] text-black">{String(usage.summary.chargedCost ?? "-")}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Failed</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(usage.summary.failedRequests ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Avg latency</p><p className="mt-2 text-[18px] leading-none tracking-[-0.04em] text-black">{String(usage.summary.averageLatency ?? "-")}</p></article>
+        {summaryCards.map((card) => (
+          <article key={card.id} className="border border-[#b8b1a5] bg-[#fbfaf7] p-4">
+            <p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">{card.label}</p>
+            <p className={`mt-2 leading-none tracking-[-0.05em] text-black ${card.valueClassName}`}>{String(card.value ?? 0)}</p>
+          </article>
+        ))}
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">

@@ -12,6 +12,18 @@ export const metadata: Metadata = {
   description: "Dwipa admin operational overview.",
 };
 
+const metricLinks: Record<string, string> = {
+  "active-users": "/admin/users",
+  "approved-revenue": "/admin/payments",
+  failed: "/admin/usage",
+  payments: "/admin/payments",
+  "pending-payments": "/admin/payments",
+  requests: "/admin/usage",
+  revenue: "/admin/payments",
+  "submitted-today": "/admin/payments",
+  users: "/admin/users",
+};
+
 async function getOverview() {
   try {
     const requestHeaders = await headers();
@@ -33,13 +45,36 @@ export default async function AdminOverviewPage() {
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {overview.metrics.map((metric) => (
-          <article key={metric.id} className="border border-[#b8b1a5] bg-[#fbfaf7] p-4">
-            <p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53] sm:text-[9px]">{metric.label}</p>
-            <p className="mt-2 text-[26px] leading-none tracking-[-0.05em] text-black">{metric.value}</p>
-            <p className="mt-2 text-[10px] leading-[1.55] text-[#8a847a] sm:text-[11px]">{metric.description}</p>
-          </article>
-        ))}
+        {overview.metrics.map((metric) => {
+          const href = metricLinks[metric.id];
+          const content = (
+            <>
+              <p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53] sm:text-[9px]">{metric.label}</p>
+              <p className="mt-2 text-[26px] leading-none tracking-[-0.05em] text-black">{metric.value}</p>
+              <p className="mt-2 text-[10px] leading-[1.55] text-[#8a847a] sm:text-[11px]">{metric.description}</p>
+              {href ? (
+                <p className="mt-4 text-[8px] uppercase tracking-[0.14em] text-[#6f695f] group-hover:text-black sm:text-[9px]">
+                  Open
+                </p>
+              ) : null}
+            </>
+          );
+
+          return href ? (
+            <Link
+              key={metric.id}
+              href={href}
+              aria-label={`Open ${metric.label}`}
+              className="group block border border-[#b8b1a5] bg-[#fbfaf7] p-4 transition-colors hover:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+            >
+              {content}
+            </Link>
+          ) : (
+            <article key={metric.id} className="border border-[#b8b1a5] bg-[#fbfaf7] p-4">
+              {content}
+            </article>
+          );
+        })}
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">

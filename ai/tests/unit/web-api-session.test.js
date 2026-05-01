@@ -5,6 +5,7 @@ const dbCreateAuthUserMock = vi.fn();
 const dbEnsureAuthUserSignupQuotaMock = vi.fn();
 const dbGetAuthUserByEmailMock = vi.fn();
 const dbGetUserPaygCreditBalanceMock = vi.fn();
+const dbGetAdminOverviewMock = vi.fn();
 const getRequestDetailsMock = vi.fn();
 const getApiKeysMock = vi.fn();
 
@@ -34,7 +35,7 @@ vi.mock("@/lib/adminPostgres", () => ({
   dbDeleteAdminUser: vi.fn(),
   dbGetAdminAuditEvents: vi.fn(),
   dbGetAdminModels: vi.fn(),
-  dbGetAdminOverview: vi.fn(),
+  dbGetAdminOverview: dbGetAdminOverviewMock,
   dbGetAdminPayment: vi.fn(),
   dbGetAdminPayments: vi.fn(),
   dbGetAdminPlans: vi.fn(),
@@ -95,6 +96,11 @@ describe("webApiDev session hydration", () => {
     dbGetUserPaygCreditBalanceMock.mockResolvedValue(0);
     getRequestDetailsMock.mockResolvedValue({ details: [] });
     getApiKeysMock.mockResolvedValue([]);
+    dbGetAdminOverviewMock.mockResolvedValue({
+      metrics: [],
+      workQueue: { payments: [], users: [], requests: [] },
+      charts: { requests: [], revenue: [], errors: [] },
+    });
     dbGetAuthUserByEmailMock.mockResolvedValue({
       id: "db_user_123",
       email: "user@example.com",
@@ -355,6 +361,90 @@ describe("webApiDev session hydration", () => {
         failedRequests: 1,
       },
       nextCursor: null,
+    });
+  });
+
+  it("uses dev request details for admin overview request metrics", async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: {
+        email: "admin@example.com",
+        role: "admin",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+    });
+    const today = new Date().toISOString();
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    dbGetAdminOverviewMock.mockResolvedValueOnce({
+      metrics: [
+        { id: "users", label: "Users", value: "8", description: "Registered accounts in PostgreSQL." },
+        { id: "requests", label: "Requests today", value: "0", description: "Usage requests recorded today." },
+        { id: "failed", label: "Failed today", value: "0", description: "Failed or rejected requests today." },
+      ],
+      workQueue: { payments: [], users: [], requests: [] },
+      charts: { requests: [], revenue: [], errors: [] },
+    });
+    getRequestDetailsMock.mockResolvedValueOnce({
+      details: [
+        {
+          id: "req_today_success",
+          provider: "openai",
+          model: "gpt-5.4",
+          timestamp: today,
+          status: "success",
+          tokens: { prompt_tokens: 10, completion_tokens: 5 },
+        },
+        {
+          id: "req_today_failed",
+          provider: "openai",
+          model: "gpt-5.4",
+          timestamp: today,
+          status: "error",
+          tokens: { prompt_tokens: 3, completion_tokens: 0 },
+        },
+        {
+          id: "req_yesterday",
+          provider: "openai",
+          model: "gpt-5.4",
+          timestamp: yesterday,
+          status: "success",
+          tokens: { prompt_tokens: 1, completion_tokens: 1 },
+        },
+      ],
+    });
+
+    const { getAdminOverview } = await import("../../src/lib/webApiDev.js");
+    const response = await getAdminOverview(
+      new Request("http://localhost/api/web/v1/admin/overview", {
+        headers: {
+          cookie: "dwipa_admin_session=admin-token",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      metrics: [
+        { id: "users", value: "8" },
+        { id: "requests", value: "2" },
+        { id: "failed", value: "1" },
+      ],
+      workQueue: {
+        requests: [
+          { id: "req_today_success" },
+          { id: "req_today_failed" },
+          { id: "req_yesterday" },
+        ],
+      },
+      charts: {
+        requests: expect.arrayContaining([
+          { label: today.slice(0, 10), value: 2 },
+          { label: yesterday.slice(0, 10), value: 1 },
+        ]),
+        errors: expect.arrayContaining([
+          { label: today.slice(0, 10), value: 1 },
+          { label: yesterday.slice(0, 10), value: 0 },
+        ]),
+      },
     });
   });
 

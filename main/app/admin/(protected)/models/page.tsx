@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import Link from "next/link";
 
 import { adminCopy } from "@/content/admin";
 import { webApi } from "@/lib/web-api";
@@ -23,6 +24,8 @@ async function getModels(searchParams: Record<string, string | string[] | undefi
       provider: stringParam(searchParams.provider),
       visibility: stringParam(searchParams.visibility),
       accessState: stringParam(searchParams.accessState),
+      pricing: stringParam(searchParams.pricing),
+      sort: stringParam(searchParams.sort),
     }, { cache: "no-store", headers: cookie ? { cookie } : undefined });
   } catch {
     return { items: [], nextCursor: null, summary: {} };
@@ -42,9 +45,52 @@ function pageParam(value: string | string[] | undefined) {
 export default async function AdminModelsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const resolvedSearchParams = await searchParams;
   const models = await getModels(resolvedSearchParams);
+  const q = stringParam(resolvedSearchParams.q) || "";
+  const provider = stringParam(resolvedSearchParams.provider) || "";
+  const visibility = stringParam(resolvedSearchParams.visibility) || "";
+  const accessState = stringParam(resolvedSearchParams.accessState) || "";
+  const pricing = stringParam(resolvedSearchParams.pricing) || "";
+  const sort = stringParam(resolvedSearchParams.sort) || "";
   const totalPages = Math.max(1, Math.ceil(models.items.length / PAGE_SIZE));
   const currentPage = Math.min(pageParam(resolvedSearchParams.page), totalPages);
   const paginatedItems = models.items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const summaryCards = [
+    {
+      id: "total",
+      label: "Total models",
+      value: models.summary.totalModels,
+      href: "/admin/models",
+      active: !q && !provider && !visibility && !accessState && !pricing && !sort,
+    },
+    {
+      id: "visible",
+      label: "Visible",
+      value: models.summary.visibleModels,
+      href: "/admin/models?visibility=visible",
+      active: visibility === "visible",
+    },
+    {
+      id: "hidden",
+      label: "Hidden",
+      value: models.summary.hiddenModels,
+      href: "/admin/models?visibility=hidden",
+      active: visibility === "hidden",
+    },
+    {
+      id: "providers",
+      label: "Providers",
+      value: models.summary.providersCount,
+      href: "/admin/models?sort=provider",
+      active: sort === "provider",
+    },
+    {
+      id: "missing-pricing",
+      label: "Missing pricing",
+      value: models.summary.missingPricing,
+      href: "/admin/models?pricing=missing",
+      active: pricing === "missing",
+    },
+  ];
 
   return (
     <section>
@@ -53,14 +99,16 @@ export default async function AdminModelsPage({ searchParams }: { searchParams: 
 
       <AdminModelFilterModal>
         <form className="grid gap-3 p-5 sm:grid-cols-2" method="get">
-          <input name="q" defaultValue={stringParam(resolvedSearchParams.q) || ""} placeholder="Search display name or model id" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px] sm:col-span-2" />
-          <input name="provider" defaultValue={stringParam(resolvedSearchParams.provider) || ""} placeholder="Provider" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
-          <select name="visibility" defaultValue={stringParam(resolvedSearchParams.visibility) || ""} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]">
+          <input type="hidden" name="pricing" value={pricing} />
+          <input type="hidden" name="sort" value={sort} />
+          <input name="q" defaultValue={q} placeholder="Search display name or model id" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px] sm:col-span-2" />
+          <input name="provider" defaultValue={provider} placeholder="Provider" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]" />
+          <select name="visibility" defaultValue={visibility} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]">
             <option value="">All visibility</option>
             <option value="visible">Visible</option>
             <option value="hidden">Hidden</option>
           </select>
-          <select name="accessState" defaultValue={stringParam(resolvedSearchParams.accessState) || ""} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]">
+          <select name="accessState" defaultValue={accessState} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[13px]">
             <option value="">All access</option>
             <option value="enabled">Enabled</option>
             <option value="disabled">Disabled</option>
@@ -71,11 +119,18 @@ export default async function AdminModelsPage({ searchParams }: { searchParams: 
       </AdminModelFilterModal>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#5f5a53]">Total models</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(models.summary.totalModels ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#5f5a53]">Visible</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(models.summary.visibleModels ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#5f5a53]">Hidden</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(models.summary.hiddenModels ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#5f5a53]">Providers</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(models.summary.providersCount ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#5f5a53]">Missing pricing</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(models.summary.missingPricing ?? 0)}</p></article>
+        {summaryCards.map((card) => (
+          <Link
+            key={card.id}
+            href={card.href}
+            className={`block border bg-[#fbfaf7] p-4 transition-colors hover:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black ${card.active ? "border-black" : "border-[#b8b1a5]"}`}
+            aria-label={`Filter models by ${card.label}`}
+          >
+            <p className="text-[10px] uppercase tracking-[0.12em] text-[#5f5a53]">{card.label}</p>
+            <p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(card.value ?? 0)}</p>
+            <p className="mt-4 text-[8px] uppercase tracking-[0.14em] text-[#6f695f]">{card.active ? "Selected" : "Open"}</p>
+          </Link>
+        ))}
       </div>
 
       <div className="mt-6">

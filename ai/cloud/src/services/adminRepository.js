@@ -334,10 +334,13 @@ export async function listPayments(env, urlInput) {
   const status = url.searchParams.get("status");
   const purpose = url.searchParams.get("purpose");
   const q = url.searchParams.get("q");
+  const queue = url.searchParams.get("queue");
 
   if (status) {
     where.push("p.status = ?");
     params.push(status);
+  } else if (queue === "review") {
+    where.push("p.status IN ('pending_transfer','submitted','under_review')");
   }
   if (purpose) {
     where.push("p.purpose = ?");
@@ -354,7 +357,7 @@ export async function listPayments(env, urlInput) {
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const list = await all(env, `SELECT p.*, u.email AS userEmail, u.name AS userName FROM manual_payments p LEFT JOIN users u ON u.id = p.userId ${whereSql} ORDER BY p.createdAt DESC, p.id DESC LIMIT ?`, [...params, limit + 1]);
-  const summary = await first(env, "SELECT SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) AS submitted, SUM(CASE WHEN status = 'under_review' THEN 1 ELSE 0 END) AS underReview, COALESCE(SUM(CASE WHEN status IN ('submitted','under_review') THEN amountMinor ELSE 0 END), 0) AS totalAmountSubmitted, MIN(CASE WHEN status IN ('submitted','under_review') THEN createdAt ELSE NULL END) AS oldestPending FROM manual_payments");
+  const summary = await first(env, "SELECT SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) AS submitted, SUM(CASE WHEN status = 'under_review' THEN 1 ELSE 0 END) AS underReview, SUM(CASE WHEN status = 'pending_transfer' THEN 1 ELSE 0 END) AS pendingTransfer, COALESCE(SUM(CASE WHEN status IN ('pending_transfer','submitted','under_review') THEN amountMinor ELSE 0 END), 0) AS pendingAmount, COALESCE(SUM(CASE WHEN status IN ('pending_transfer','submitted','under_review') THEN amountMinor ELSE 0 END), 0) AS totalAmountSubmitted, MIN(CASE WHEN status IN ('pending_transfer','submitted','under_review') THEN createdAt ELSE NULL END) AS oldestPending FROM manual_payments");
   const items = list.slice(0, limit);
 
   return {
@@ -363,6 +366,8 @@ export async function listPayments(env, urlInput) {
     summary: {
       submitted: Number(summary?.submitted || 0),
       underReview: Number(summary?.underReview || 0),
+      pendingTransfer: Number(summary?.pendingTransfer || 0),
+      pendingAmount: formatCurrencyMinor(summary?.pendingAmount || 0, "IDR"),
       totalAmountSubmitted: formatCurrencyMinor(summary?.totalAmountSubmitted || 0, "IDR"),
       oldestPendingAge: summary?.oldestPending || "-"
     }
@@ -410,6 +415,8 @@ export async function listUsers(env, urlInput) {
   const q = url.searchParams.get("q");
   const plan = url.searchParams.get("plan");
   const status = url.searchParams.get("status");
+  const created = url.searchParams.get("created");
+  const active = url.searchParams.get("active");
 
   if (q) {
     where.push("(lower(u.email) LIKE ? OR lower(u.name) LIKE ?)");
@@ -422,6 +429,13 @@ export async function listUsers(env, urlInput) {
   if (status) {
     where.push("u.status = ?");
     params.push(status);
+  }
+  if (created === "today") {
+    where.push("u.createdAt >= ?");
+    params.push(todayIsoStart());
+  }
+  if (active === "24h") {
+    where.push("u.lastSeenAt >= datetime('now', '-24 hours')");
   }
   if (cursor) {
     where.push("(u.createdAt < ? OR (u.createdAt = ? AND u.id < ?))");
@@ -577,6 +591,10 @@ export async function listUsageRequests(env, urlInput) {
       filterParams.push(value);
     }
   }
+  if (!url.searchParams.get("status") && url.searchParams.get("outcome") === "failed") {
+    where.push("r.status != 'success'");
+    filterWhere.push("r.status != 'success'");
+  }
   if (from) {
     where.push("r.createdAt >= ?");
     params.push(from);
@@ -597,6 +615,14 @@ export async function listUsageRequests(env, urlInput) {
     where.push("(r.inputTokens > 0 OR r.outputTokens > 0)");
     filterWhere.push("(r.inputTokens > 0 OR r.outputTokens > 0)");
   }
+  if (url.searchParams.get("hasCost") === "true") {
+    where.push("COALESCE(r.chargedCostUsd, 0) > 0");
+    filterWhere.push("COALESCE(r.chargedCostUsd, 0) > 0");
+  }
+  if (url.searchParams.get("hasLatency") === "true") {
+    where.push("COALESCE(r.latencyMs, 0) > 0");
+    filterWhere.push("COALESCE(r.latencyMs, 0) > 0");
+  }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const filterWhereSql = filterWhere.length ? `WHERE ${filterWhere.join(" AND ")}` : "";
   const list = await all(env, `SELECT r.*, u.email AS userEmail FROM usage_requests r LEFT JOIN users u ON u.id = r.userId ${whereSql} ORDER BY r.createdAt DESC, r.id DESC LIMIT ?`, [...params, limit + 1]);
@@ -607,7 +633,10 @@ export async function listUsageRequests(env, urlInput) {
   }
   if (from) filterSearch.set("from", from);
   if (to) filterSearch.set("to", to);
+  if (!url.searchParams.get("status") && url.searchParams.get("outcome") === "failed") filterSearch.set("outcome", "failed");
   if (url.searchParams.get("hasTokens") === "true") filterSearch.set("hasTokens", "true");
+  if (url.searchParams.get("hasCost") === "true") filterSearch.set("hasCost", "true");
+  if (url.searchParams.get("hasLatency") === "true") filterSearch.set("hasLatency", "true");
   const filterSuffix = [...filterSearch.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&") || "all";
   const summaryAndCharts = await getCachedUsageSummaryAndCharts(env, filterSuffix, filterWhereSql, filterParams, from, to);
   const items = list.slice(0, limit);
@@ -634,13 +663,17 @@ async function loadModels(env, urlInput) {
     where.push("allowedPlanSlugs LIKE ?");
     params.push(`%\"${plan}\"%`);
   }
+  if (url.searchParams.get("pricing") === "missing") {
+    where.push("(inputPrice = '' OR outputPrice = '')");
+  }
   const q = url.searchParams.get("q");
   if (q) {
     where.push("(lower(name) LIKE ? OR lower(modelId) LIKE ? OR lower(provider) LIKE ?)");
     params.push(likeTerm(q), likeTerm(q), likeTerm(q));
   }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const list = await all(env, `SELECT * FROM models ${whereSql} ORDER BY provider ASC, name ASC`, params);
+  const orderSql = url.searchParams.get("sort") === "provider" ? "provider ASC, name ASC" : "provider ASC, name ASC";
+  const list = await all(env, `SELECT * FROM models ${whereSql} ORDER BY ${orderSql}`, params);
   const summary = await first(env, "SELECT COUNT(*) AS totalModels, SUM(CASE WHEN visibility = 'visible' THEN 1 ELSE 0 END) AS visibleModels, SUM(CASE WHEN visibility != 'visible' THEN 1 ELSE 0 END) AS hiddenModels, COUNT(DISTINCT provider) AS providersCount, SUM(CASE WHEN inputPrice = '' OR outputPrice = '' THEN 1 ELSE 0 END) AS missingPricing FROM models");
   return {
     items: list.map(mapModelRow),

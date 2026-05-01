@@ -47,6 +47,7 @@ const SESSION_TTL_SECONDS = 60 * 60 * 8;
 const SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "dwipa-default-secret-change-me");
 const DEFAULT_SIGNUP_CREDIT_USD = 0;
 const DEFAULT_SIGNUP_CREDIT_LABEL = `$${DEFAULT_SIGNUP_CREDIT_USD}`;
+const DEV_ADMIN_USAGE_OVERVIEW_LIMIT = 10000;
 
 const publicPlans = [
   {
@@ -887,7 +888,7 @@ export async function getPublicModels(request) {
   let items = [];
 
   try {
-    const dbResult = await dbGetAdminModels();
+    const dbResult = await dbGetAdminModels(request);
     if (dbResult.items.length > 0) {
       items = dbResult.items
         .filter((m) => m.visibility === "visible" && m.accessState === "enabled")
@@ -1127,7 +1128,7 @@ async function buildDevUsageContext(details = []) {
   };
 }
 
-async function listDevUsageRequests({ userId = null, apiKeyIds = [], status = null, provider = null, model = null, hasTokens = null, limit = 10, cursor = null } = {}) {
+async function listDevUsageRequests({ userId = null, apiKeyIds = [], status = null, provider = null, model = null, from = null, to = null, outcome = null, hasTokens = null, hasCost = null, hasLatency = null, limit = 10, cursor = null } = {}) {
   // Pull a generous page from the underlying store; we need to filter+paginate in JS
   // because the lowdb-backed store doesn't support userId filtering or cursor offsets.
   const { details } = await getRequestDetails({
@@ -1145,13 +1146,18 @@ async function listDevUsageRequests({ userId = null, apiKeyIds = [], status = nu
       if (!matchesUser && !matchesOwnedKey) return false;
     }
     if (status && detail.status !== status) return false;
+    if (!status && outcome === "failed" && (detail.status || "success") === "success") return false;
     if (provider && detail.provider !== provider) return false;
     if (model && detail.model !== model) return false;
+    if (from && new Date(detail.timestamp) < new Date(from)) return false;
+    if (to && new Date(detail.timestamp) > new Date(to)) return false;
     if (hasTokens) {
       const input = Number(detail.tokens?.prompt_tokens || 0);
       const output = Number(detail.tokens?.completion_tokens || 0);
       if (input === 0 && output === 0) return false;
     }
+    if (hasCost && !(Number(detail.cost || 0) > 0)) return false;
+    if (hasLatency && !(Number(detail.latency?.total || 0) > 0)) return false;
     return true;
   });
 
@@ -1172,6 +1178,11 @@ async function listDevUsageRequests({ userId = null, apiKeyIds = [], status = nu
     accumulator.requests += 1;
     accumulator.inputTokens += Number(detail.tokens?.prompt_tokens || 0);
     accumulator.outputTokens += Number(detail.tokens?.completion_tokens || 0);
+    const latency = Number(detail.latency?.total || 0);
+    if (latency > 0) {
+      accumulator.latencyTotal += latency;
+      accumulator.latencyCount += 1;
+    }
     let cost = Number.isFinite(Number(detail.cost)) ? Number(detail.cost) : null;
     const detailHasTokens = detail.tokens && (
       (detail.tokens.prompt_tokens || detail.tokens.input_tokens || 0) > 0 ||
@@ -1187,7 +1198,7 @@ async function listDevUsageRequests({ userId = null, apiKeyIds = [], status = nu
     accumulator.chargedCost += Number.isFinite(Number(cost)) ? Number(cost) : 0;
     if ((detail.status || "success") !== "success") accumulator.failedRequests += 1;
     return accumulator;
-  }, { requests: 0, inputTokens: 0, outputTokens: 0, chargedCost: 0, failedRequests: 0 });
+  }, { requests: 0, inputTokens: 0, outputTokens: 0, chargedCost: 0, failedRequests: 0, latencyTotal: 0, latencyCount: 0 });
 
   const chartMap = new Map();
   for (const detail of filtered) {
@@ -1222,12 +1233,87 @@ async function listDevUsageRequests({ userId = null, apiKeyIds = [], status = nu
       outputTokens: summary.outputTokens,
       chargedCost: formatUsdAmountForUsage(summary.chargedCost),
       failedRequests: summary.failedRequests,
-      averageLatency: "-",
+      averageLatency: summary.latencyCount > 0 ? `${Math.round(summary.latencyTotal / summary.latencyCount)}ms` : "-",
     },
     charts: {
       requests: chartEntries.map(([label, value]) => ({ label, value: value.requests })),
       tokens: chartEntries.map(([label, value]) => ({ label, value: value.tokens })),
       cost: chartEntries.map(([label, value]) => ({ label, value: value.cost })),
+    },
+  };
+}
+
+async function getDevUsageOverviewOverlay() {
+  const { details } = await getRequestDetails({
+    page: 1,
+    pageSize: DEV_ADMIN_USAGE_OVERVIEW_LIMIT,
+  }).catch(() => ({ details: [] }));
+
+  if (!details.length) return null;
+
+  const todayLabel = new Date().toISOString().slice(0, 10);
+  const chartMap = new Map();
+  let requestsToday = 0;
+  let failedToday = 0;
+
+  for (const detail of details) {
+    const label = String(detail.timestamp || "").slice(0, 10);
+    if (!label) continue;
+
+    const status = detail.status || "success";
+    const current = chartMap.get(label) || { requests: 0, errors: 0 };
+    current.requests += 1;
+    if (status !== "success") current.errors += 1;
+    chartMap.set(label, current);
+
+    if (label === todayLabel) {
+      requestsToday += 1;
+      if (status !== "success") failedToday += 1;
+    }
+  }
+
+  const recentDetails = details.slice(0, 5);
+  const context = await buildDevUsageContext(recentDetails);
+  const chartEntries = [...chartMap.entries()].sort(([left], [right]) => left.localeCompare(right));
+
+  return {
+    requestsToday,
+    failedToday,
+    requests: recentDetails.map((record) => mapDevUsageItem(record, context)),
+    charts: {
+      requests: chartEntries.map(([label, value]) => ({ label, value: value.requests })),
+      errors: chartEntries.map(([label, value]) => ({ label, value: value.errors })),
+    },
+  };
+}
+
+async function getDevAdminOverview() {
+  const [overview, usageOverlay] = await Promise.all([
+    dbGetAdminOverview(),
+    getDevUsageOverviewOverlay(),
+  ]);
+
+  if (!usageOverlay) return overview;
+
+  return {
+    ...overview,
+    metrics: overview.metrics.map((metric) => {
+      if (metric.id === "requests") {
+        return { ...metric, value: String(usageOverlay.requestsToday) };
+      }
+      if (metric.id === "failed") {
+        return { ...metric, value: String(usageOverlay.failedToday) };
+      }
+      return metric;
+    }),
+    workQueue: {
+      ...overview.workQueue,
+      requests: usageOverlay.requests,
+    },
+    charts: {
+      ...overview.charts,
+      requests: usageOverlay.charts.requests,
+      errors: usageOverlay.charts.errors,
     },
   };
 }
@@ -1509,7 +1595,7 @@ export async function getAdminOverview(request) {
     return errorResponse(401, "admin_unauthorized", "Admin session is required.");
   }
 
-  return jsonResponse(await dbGetAdminOverview());
+  return jsonResponse(await getDevAdminOverview());
 }
 
 export async function getAdminPayments(request) {
@@ -1710,8 +1796,14 @@ export async function getAdminUsageRequests(request) {
     status: url.searchParams.get("status") || null,
     provider: url.searchParams.get("provider") || null,
     model: url.searchParams.get("model") || null,
+    from: url.searchParams.get("from") || null,
+    to: url.searchParams.get("to") || null,
+    outcome: url.searchParams.get("outcome") || null,
     hasTokens: url.searchParams.get("hasTokens") === "true",
+    hasCost: url.searchParams.get("hasCost") === "true",
+    hasLatency: url.searchParams.get("hasLatency") === "true",
     limit: Number(url.searchParams.get("limit") || 10),
+    cursor: url.searchParams.get("cursor") || null,
   }));
 }
 
@@ -1738,8 +1830,8 @@ export async function getAdminModels(request) {
   }
 
   try {
-    const dbResult = await dbGetAdminModels();
-    if (dbResult.items.length > 0) {
+    const dbResult = await dbGetAdminModels(request);
+    if (dbResult.items.length > 0 || Number(dbResult.summary?.totalModels || 0) > 0) {
       return jsonResponse(dbResult);
     }
   } catch {

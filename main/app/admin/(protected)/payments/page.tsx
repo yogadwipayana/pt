@@ -22,6 +22,7 @@ async function getPayments(searchParams: Record<string, string | string[] | unde
       q: stringParam(searchParams.q),
       status: stringParam(searchParams.status),
       purpose: stringParam(searchParams.purpose),
+      queue: stringParam(searchParams.queue),
       cursor: stringParam(searchParams.cursor)
     }, { cache: "no-store", headers: cookie ? { cookie } : undefined });
   } catch (error) {
@@ -37,14 +38,52 @@ function stringParam(value: string | string[] | undefined) {
 export default async function AdminPaymentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const resolvedSearchParams = await searchParams;
   const payments = await getPayments(resolvedSearchParams);
+  const q = stringParam(resolvedSearchParams.q) || "";
+  const status = stringParam(resolvedSearchParams.status) || "";
+  const purpose = stringParam(resolvedSearchParams.purpose) || "";
+  const queue = stringParam(resolvedSearchParams.queue) || "";
+  const summaryCards = [
+    {
+      id: "pending-transfer",
+      label: "Pending transfer",
+      value: payments.summary.pendingTransfer,
+      href: "/admin/payments?status=pending_transfer",
+      active: status === "pending_transfer",
+      valueClassName: "text-[24px]",
+    },
+    {
+      id: "under-review",
+      label: "Under review",
+      value: payments.summary.underReview,
+      href: "/admin/payments?status=under_review",
+      active: status === "under_review",
+      valueClassName: "text-[24px]",
+    },
+    {
+      id: "submitted",
+      label: "Submitted",
+      value: payments.summary.submitted,
+      href: "/admin/payments?status=submitted",
+      active: status === "submitted",
+      valueClassName: "text-[24px]",
+    },
+    {
+      id: "pending-amount",
+      label: "Pending amount",
+      value: payments.summary.pendingAmount || payments.summary.totalAmountSubmitted || "-",
+      href: "/admin/payments?queue=review",
+      active: queue === "review" && !status,
+      valueClassName: "text-[18px]",
+    },
+  ];
 
   return (
     <section>
       <h2 className="text-[24px] leading-[0.98] tracking-[-0.04em] sm:text-[30px]">{adminCopy.paymentsTitle}</h2>
       <p className="mt-2 max-w-[520px] text-[10px] leading-[1.55] text-[#8a847a] sm:text-[11px]">{adminCopy.paymentsDescription}</p>
       <form className="mt-6 grid gap-3 border border-[#d8d0c3] bg-[#fbfaf7] p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <input name="q" defaultValue={stringParam(resolvedSearchParams.q) || ""} placeholder="Search reference or email" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
-        <select name="status" defaultValue={stringParam(resolvedSearchParams.status) || ""} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]">
+        <input name="q" defaultValue={q} placeholder="Search reference or email" className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]" />
+        <select name="status" defaultValue={status} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]">
           <option value="">All statuses</option>
           <option value="pending_transfer">Pending transfer</option>
           <option value="submitted">Submitted</option>
@@ -53,7 +92,7 @@ export default async function AdminPaymentsPage({ searchParams }: { searchParams
           <option value="rejected">Rejected</option>
           <option value="expired">Expired</option>
         </select>
-        <select name="purpose" defaultValue={stringParam(resolvedSearchParams.purpose) || ""} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]">
+        <select name="purpose" defaultValue={purpose} className="min-h-[44px] rounded-none border border-[#9f988c] bg-[#f7f5f2] px-3 text-[12px]">
           <option value="">All purposes</option>
           <option value="add_funds">Add funds</option>
           <option value="upgrade_plan">Upgrade plan</option>
@@ -64,10 +103,18 @@ export default async function AdminPaymentsPage({ searchParams }: { searchParams
       </form>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Pending transfer</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(payments.summary.pendingTransfer ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Under review</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(payments.summary.underReview ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Submitted</p><p className="mt-2 text-[24px] leading-none tracking-[-0.05em] text-black">{String(payments.summary.submitted ?? 0)}</p></article>
-        <article className="border border-[#b8b1a5] bg-[#fbfaf7] p-4"><p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">Pending amount</p><p className="mt-2 text-[18px] leading-none tracking-[-0.04em] text-black">{String(payments.summary.pendingAmount ?? "-")}</p></article>
+        {summaryCards.map((card) => (
+          <Link
+            key={card.id}
+            href={card.href}
+            className={`block border bg-[#fbfaf7] p-4 transition-colors hover:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black ${card.active ? "border-black" : "border-[#b8b1a5]"}`}
+            aria-label={`Filter payments by ${card.label}`}
+          >
+            <p className="text-[8px] uppercase tracking-[0.14em] text-[#5f5a53]">{card.label}</p>
+            <p className={`mt-2 leading-none tracking-[-0.05em] text-black ${card.valueClassName}`}>{String(card.value ?? 0)}</p>
+            <p className="mt-4 text-[8px] uppercase tracking-[0.14em] text-[#6f695f]">{card.active ? "Selected" : "Open"}</p>
+          </Link>
+        ))}
       </div>
 
       <div className="mt-6">
