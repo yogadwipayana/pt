@@ -4,7 +4,7 @@ pm2 delete ai
 pm2 delete main
 
 cd /projects
-git pull
+sudo git pull
 
 cd /projects/ai
 npm install
